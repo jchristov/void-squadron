@@ -386,29 +386,32 @@ function createPlanetTexture(size = 1024, seed = 33): THREE.CanvasTexture {
 
   const random = mulberry32(seed);
   const base = context.createLinearGradient(0, 0, size, size);
-  base.addColorStop(0, '#161728');
-  base.addColorStop(0.35, '#305684');
-  base.addColorStop(0.68, '#99715a');
-  base.addColorStop(1, '#22140e');
+  base.addColorStop(0, '#132e55');
+  base.addColorStop(0.35, '#1f6093');
+  base.addColorStop(0.68, '#164779');
+  base.addColorStop(1, '#0c2548');
   context.fillStyle = base;
   context.fillRect(0, 0, size, size);
 
-  for (let i = 0; i < 1200; i += 1) {
+  for (let i = 0; i < 18; i += 1) {
     const x = random() * size;
-    const y = random() * size;
-    const radius = 8 + random() * 44;
-    const ring = context.createRadialGradient(x, y, 0, x, y, radius);
-    const hue = 20 + Math.floor(random() * 40);
-    ring.addColorStop(0, `hsla(${hue}, 55%, ${45 + random() * 20}%, ${0.08 + random() * 0.08})`);
-    ring.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
-    context.fillStyle = ring;
+    const y = size * (0.15 + random() * 0.7);
+    const radius = 35 + random() * 100;
+    context.fillStyle = ['#537c6a', '#71937b', '#998d6c'][i % 3];
     context.beginPath();
-    context.arc(x, y, radius, 0, Math.PI * 2);
+    for (let point = 0; point <= 90; point += 1) {
+      const angle = point / 90 * Math.PI * 2;
+      const edge = radius * (0.7 + Math.sin(angle * 3 + i) * 0.15 + Math.cos(angle * 7) * 0.08 + random() * 0.1);
+      const px = x + Math.cos(angle) * edge;
+      const py = y + Math.sin(angle) * edge * 0.65;
+      if (point === 0) context.moveTo(px, py); else context.lineTo(px, py);
+    }
+    context.closePath();
     context.fill();
   }
 
   context.globalCompositeOperation = 'multiply';
-  for (let i = 0; i < 420; i += 1) {
+  for (let i = 0; i < 100; i += 1) {
     const x = random() * size;
     const y = random() * size;
     const radius = 14 + random() * 80;
@@ -421,6 +424,29 @@ function createPlanetTexture(size = 1024, seed = 33): THREE.CanvasTexture {
     context.fill();
   }
   context.globalCompositeOperation = 'source-over';
+  for (let cloud = 0; cloud < 420; cloud += 1) {
+    const x = random() * size;
+    const y = random() * size;
+    const radius = 12 + random() * 50;
+    const mist = context.createRadialGradient(x, y, 0, x, y, radius);
+    mist.addColorStop(0, `rgba(235,246,255,${0.15 + random() * 0.4})`);
+    mist.addColorStop(1, 'rgba(235,246,255,0)');
+    context.fillStyle = mist;
+    context.beginPath();
+    context.ellipse(x, y, radius, radius * 0.3, -0.25, 0, Math.PI * 2);
+    context.fill();
+  }
+  for (let band = 0; band < 20; band += 1) {
+    const y = random() * size;
+    context.strokeStyle = `rgba(223,239,250,${0.08 + random() * 0.2})`;
+    context.lineWidth = 2 + random() * 8;
+    context.beginPath();
+    context.moveTo(-20, y);
+    for (let x = 0; x <= size + 20; x += 20) {
+      context.lineTo(x, y + Math.sin(x * 0.013 + band) * (8 + random() * 16));
+    }
+    context.stroke();
+  }
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -465,17 +491,44 @@ export function createPlanet(radius = 24): THREE.Group {
   const surfaceTexture = createPlanetTexture();
   const planet = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 48, 48),
-    new THREE.MeshStandardMaterial({ map: surfaceTexture, roughness: 0.95, metalness: 0.05, emissive: 0x0d0e16, emissiveIntensity: 0.2 }),
+    new THREE.ShaderMaterial({
+      uniforms: { surface: { value: surfaceTexture }, sunDirection: { value: new THREE.Vector3(-0.8, 0.45, 0.7).normalize() } },
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        void main() {
+          vUv = uv;
+          vNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D surface;
+        uniform vec3 sunDirection;
+        varying vec2 vUv;
+        varying vec3 vNormal;
+        void main() {
+          vec3 terrain = texture2D(surface, vUv).rgb;
+          float light = dot(normalize(vNormal), sunDirection);
+          float daylight = smoothstep(-0.22, 0.7, light);
+          vec3 color = terrain * (0.12 + daylight * 0.95);
+          color += vec3(0.03, 0.09, 0.16) * (1.0 - daylight);
+          gl_FragColor = vec4(color, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `,
+    }),
   );
   group.add(planet);
 
   const atmosphere = new THREE.Mesh(
-    new THREE.SphereGeometry(radius * 1.08, 40, 40),
+    new THREE.SphereGeometry(radius * 1.025, 64, 48),
     new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      side: THREE.BackSide,
+      side: THREE.FrontSide,
       uniforms: {
         glowColor: { value: new THREE.Color(0x78c7ff) },
       },
@@ -495,8 +548,8 @@ export function createPlanet(radius = 24): THREE.Group {
         varying vec3 vWorldPosition;
         void main() {
           vec3 viewDirection = normalize(cameraPosition - vWorldPosition);
-          float fresnel = pow(1.05 - max(dot(vWorldNormal, viewDirection), 0.0), 4.0);
-          float alpha = clamp(fresnel * 0.55, 0.0, 0.55);
+          float fresnel = pow(1.0 - max(dot(normalize(vWorldNormal), viewDirection), 0.0), 5.0);
+          float alpha = clamp(fresnel * 0.32, 0.0, 0.32);
           gl_FragColor = vec4(glowColor, alpha);
         }
       `,
