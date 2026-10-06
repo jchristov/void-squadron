@@ -24,6 +24,10 @@ Run the pure gameplay-rule tests with `npm test`.
 
 The start screen is a single fullscreen composition with no scrolling on desktop: mission briefing and launch button on the left, a live 3D scene in the middle (your craft rotates and banks on a dock cradle beside a rotating ring station with blinking lights and escorts flying past), and a **ship dossier** on the right with role, description, relative stat bars (hull, shield, speed, armor, firepower; amber segments show your permanent upgrades), upgrade pips and your personal record. A compact row of six spacecraft cards (with images rendered from the real 3D models) sits along the bottom; click one, press **1–6**, or use **← →** to switch. On tablets and phones the same content stacks into a scrolling layout. Press **Launch Mission** or Enter to deploy. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
 
+### Salvage drops
+
+Destroyed spacecraft eject salvage pods (`src/drops.ts`): bigger wrecks roll more often (destroyers up to 3 pods). Each pod is usually a recovery supply weighted toward what you are missing, sometimes a **temporary** combat boost (torpedoes, overcharge, aegis) and rarely a **permanent** hull/defense/attack upgrade (at most one per wreck, only while that track is not maxed). Wrecks you did not shoot down drop half as often.
+
 ### Campaign
 
 The start screen has two tabs. **Campaign** is seven chapters, each with a different objective type; **Arcade** is the original five-wave *Operation Shattered Orbit* ending with the Leviathan.
@@ -48,7 +52,8 @@ Chapters unlock in order. The first clear of a chapter grants a permanent upgrad
 | Scroll wheel / Q / E | Roll around the ship’s forward axis |
 | Hold left mouse / Space | Fire primary weapons |
 | Hold Shift | Boost while energy is available |
-| Hold Z | **Brake / creep** at a quarter of cruise speed (needed for scans and stealth) |
+| R / F | Raise / lower engine **throttle** (100% down to a dead stop); Z = all stop. Shift boost overrides throttle |
+| + / − | Zoom the radar in / out |
 | X / right mouse | Fire a homing **proton torpedo** (fighter 4, interceptor 0, bomber 8, shuttle 0, freighter 0, destroyer 6) |
 | M | Toggle mouse capture; during menus enables it for next launch |
 | Escape | Pause / resume |
@@ -139,6 +144,7 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/records.test.ts` — records persistence and update tests.
 - `src/campaign.ts` — pure campaign module: the seven chapters, stage trackers (eliminate, scan, stealth, retrieve, defend, navigate, hunt, boss), layouts, ranks and progress persistence.
 - `src/campaign.test.ts` — campaign tests.
+- `src/drops.ts` / `src/drops.test.ts` — salvage drop tables and rolls.
 - `src/station.ts` — procedural space station and dock cradle used by the start screen.
 - `src/menuMotion.ts` — pure choreography helpers for the start-screen hero craft, escorts and camera.
 - `src/thumbnails.ts` — renders the hangar tile images from the real 3D models.

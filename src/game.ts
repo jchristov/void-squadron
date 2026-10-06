@@ -112,6 +112,7 @@ import {
 } from './capital.ts';
 import { computeAccuracy, type MissionSummary } from './summary.ts';
 import { createDockCradle, createSpaceStation, type AnimatedGroup } from './station.ts';
+import { rollDrops } from './drops.ts';
 import { createChapterRun, describeObjectiveHud, type ChapterDef, type ChapterRun, type Vec3 } from './campaign.ts';
 import { cameraSway, enterState, escortPosition, heroPose } from './menuMotion.ts';
 import { formatSpaceDistance } from './units.ts';
@@ -151,6 +152,7 @@ export interface GameSnapshot {
   recovery?: boolean;
   captureActive?: boolean;
   braking?: boolean;
+  throttle?: number;
   difficulty?: Difficulty;
   summary?: MissionSummary;
   campaign?: {
@@ -813,7 +815,9 @@ export class SpaceGame {
   private autoStatus = '';
   private autoBoost = false;
   private autoBrake = false;
-  private brakeHeld = false;
+  /** Manual throttle 0..1 (R / F adjust, Z cuts to zero); autopilot flies at full throttle. */
+  private throttle = 1;
+  private throttleAxis = 0;
   private autoFire = false;
   private readonly autoInput = { yaw: 0, pitch: 0, roll: 0 };
   private pilotRetreating = false;
@@ -924,7 +928,7 @@ export class SpaceGame {
       this.boostHeld = true;
     }
     if (event.code === 'KeyZ') {
-      this.brakeHeld = true;
+      this.throttle = 0;
       if (this.autoMode !== 'off') this.setAutoMode('off', 'MANUAL CONTROL');
     }
     if (
@@ -939,6 +943,8 @@ export class SpaceGame {
         'KeyD',
         'KeyQ',
         'KeyE',
+        'KeyR',
+        'KeyF',
       ].includes(event.code)
     ) {
       event.preventDefault();
@@ -954,9 +960,6 @@ export class SpaceGame {
     }
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
       this.boostHeld = false;
-    }
-    if (event.code === 'KeyZ') {
-      this.brakeHeld = false;
     }
     if (this.heldKeys.delete(event.code)) {
       this.recomputeKeyboardAxes();
@@ -1111,6 +1114,7 @@ export class SpaceGame {
     this.autoFire = false;
     this.autoBoost = false;
     this.autoBrake = false;
+    this.throttle = 1;
     this.pilotRetreating = false;
     this.torpedoes = this.getCurrentShipStats().torpedoes;
     this.torpedoCooldown = 0;
@@ -1751,7 +1755,13 @@ export class SpaceGame {
   }
 
   private isBraking(): boolean {
-    return this.brakeHeld || this.autoBrake;
+    return this.autoBrake;
+  }
+
+  /** Throttle actually applied: autopilot cruises at full power unless a scan or stealth stage asks it to creep. */
+  private getEffectiveThrottle(): number {
+    if (this.autoBrake) return BRAKE_SPEED_FACTOR;
+    return this.autoMode !== 'off' ? 1 : this.throttle;
   }
 
   // ---------------------------------------------------------------- campaign runtime
@@ -2675,6 +2685,7 @@ export class SpaceGame {
       this.moveAfterSteering(dt, profile, stats);
       return;
     }
+    this.throttle = clamp(this.throttle + this.throttleAxis * dt * 0.55, 0, 1);
     const captured = this.isMouseCaptureActive();
     const cursorGain = clamp(this.mouseSensitivity * UNLOCKED_CURSOR_GAIN_PER_X, 0.5, 8);
     const pointerTarget = captured
@@ -2693,7 +2704,7 @@ export class SpaceGame {
   }
 
   private moveAfterSteering(dt: number, profile: FlightProfile, stats: ShipDefinition): void {
-    this.currentSpeed = this.isBraking() ? Math.round(stats.speed * BRAKE_SPEED_FACTOR * 10) / 10 : getForwardSpeed(stats.speed, this.isBoosting(), this.energy);
+    this.currentSpeed = this.isBoosting() ? getForwardSpeed(stats.speed, true, this.energy) : Math.round(stats.speed * this.getEffectiveThrottle() * 10) / 10;
     const motion = integrateFlightMotion(
       this.playerRoot.position,
       this.playerVelocity,
@@ -3232,38 +3243,26 @@ export class SpaceGame {
     });
   }
 
-  private spawnEnemyDrop(enemy: EnemyEntity): void {
-    const chance = enemy.pursuit.combat ? 0.58 : 0.78;
-    if (this.random() > chance) {
-      return;
-    }
+  private spawnEnemyDrop(enemy: EnemyEntity, byPlayer: boolean): void {
     const ownStats = this.getCurrentShipStats();
-    const combatPool: PickupType[] = (['torpedo', 'overcharge', 'aegis'] as PickupType[]).filter((type) => canUseCombatPickup(type, ownStats) && (type !== 'torpedo' || this.torpedoes < ownStats.torpedoes));
-    if (this.torpedoes === 0 && combatPool.includes('torpedo')) combatPool.push('torpedo', 'torpedo');
-    if (combatPool.length > 0 && this.random() < (enemy.pursuit.combat ? 0.26 : 0.16)) {
-      const type = combatPool[Math.floor(this.random() * combatPool.length)] ?? combatPool[0];
-      this.spawnPickup(type, enemy.object.position.clone(), type === 'torpedo' ? TORPEDO.pickupAmount : 1, 0.7);
-      return;
-    }
-    const availableUpgrades = this.getAvailableUpgradePickupTypes();
-    const upgradeChance = enemy.pursuit.combat ? 0.34 : 0.26;
-    if (availableUpgrades.length > 0 && this.random() < upgradeChance) {
-      const type = availableUpgrades[Math.floor(this.random() * availableUpgrades.length)] ?? availableUpgrades[0];
-      this.spawnPickup(type, enemy.object.position.clone(), 1, 0.7);
-      return;
-    }
-    const stats = this.getCurrentShipStats();
-    const hullNeed = Math.max(0, stats.hull - this.playerHull);
-    const shieldNeed = Math.max(0, stats.shield - this.playerShield);
-    const energyNeed = Math.max(0, MAX_ENERGY - this.energy);
-    const weighted: PickupType[] = [];
-    if (energyNeed > 8) weighted.push('energy', 'energy');
-    if (shieldNeed > 12) weighted.push('shield', 'shield');
-    if (hullNeed > 16) weighted.push('hull', 'hull');
-    weighted.push('energy', 'shield', 'hull');
-    const type = weighted[Math.floor(this.random() * weighted.length)] ?? 'energy';
-    const amount = type === 'energy' ? 32 : type === 'shield' ? 28 : 24;
-    this.spawnPickup(type, enemy.object.position.clone(), amount, 0.7);
+    const usableCombat = (['torpedo', 'overcharge', 'aegis'] as PickupType[]).filter((type) => canUseCombatPickup(type, ownStats) && (type !== 'torpedo' || this.torpedoes < ownStats.torpedoes));
+    const drops = rollDrops(() => this.random(), {
+      shipClass: enemy.shipClass,
+      byPlayer,
+      usableCombat,
+      availableUpgrades: this.getAvailableUpgradePickupTypes(),
+      needs: { hull: Math.max(0, ownStats.hull - this.playerHull), shield: Math.max(0, ownStats.shield - this.playerShield), energy: Math.max(0, MAX_ENERGY - this.energy) },
+      torpedoesEmpty: this.torpedoes === 0,
+    });
+    if (drops.length === 0) return;
+    // Pods burst out of the wreck in a ring and keep a share of its momentum before settling into a slow drift.
+    drops.forEach((drop, index) => {
+      const angle = (index / drops.length) * Math.PI * 2 + this.randomRange(0, 1);
+      const position = enemy.object.position.clone().add(new THREE.Vector3(Math.cos(angle), this.randomRange(-0.3, 0.3), Math.sin(angle)).multiplyScalar(enemy.radius * 0.5 * (drops.length > 1 ? 1 : 0)));
+      this.spawnPickup(drop.type, position, drop.amount, drop.permanent ? 1.1 : 0.9);
+    });
+    const best = drops.find((drop) => drop.permanent) ?? drops.find((drop) => isCombatPickup(drop.type)) ?? drops[0];
+    this.flashAssistMessage(`SALVAGE DROPPED · ${PICKUP_LABELS_SHORT[best.type]}${drops.length > 1 ? ` +${drops.length - 1} MORE` : ''}`);
   }
 
   private updateRecoveryState(): void {
@@ -4089,8 +4088,8 @@ export class SpaceGame {
       this.combo = getComboAfterKill(this.combo, this.lastKillTimer);
       this.lastKillTimer = 0;
       this.score += getKillScore(enemy.shipClass, Math.max(1, this.wave), Math.max(1, this.combo));
-      this.spawnEnemyDrop(enemy);
     }
+    if (this.mode === 'playing') this.spawnEnemyDrop(enemy, byPlayer);
     this.removeEnemy(enemy);
   }
 
@@ -4622,6 +4621,7 @@ export class SpaceGame {
       recovery: this.recoveryActive,
       captureActive: this.isMouseCaptureActive(),
       braking: this.isBraking(),
+      throttle: Math.round(this.getEffectiveThrottle() * 100),
       difficulty: this.difficulty,
       summary: this.buildSummary(),
       campaign: this.buildCampaignSnapshot(),
@@ -4844,12 +4844,13 @@ export class SpaceGame {
     this.yawAxis = (right ? 1 : 0) - (left ? 1 : 0);
     this.pitchAxis = (up ? 1 : 0) - (down ? 1 : 0);
     this.rollAxis = (rollRight ? 1 : 0) - (rollLeft ? 1 : 0);
+    this.throttleAxis = (this.heldKeys.has('KeyR') ? 1 : 0) - (this.heldKeys.has('KeyF') ? 1 : 0);
   }
 
   private releaseContinuousInput(): void {
     this.fireHeld = false;
     this.boostHeld = false;
-    this.brakeHeld = false;
+    this.throttleAxis = 0;
     this.heldKeys.clear();
     this.yawAxis = 0;
     this.pitchAxis = 0;

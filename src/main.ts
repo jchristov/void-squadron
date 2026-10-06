@@ -133,15 +133,15 @@ app.innerHTML = `
       <button id="assist-combat" class="assist-btn" tabindex="-1" aria-label="Toggle autocombat (C)"><kbd>C</kbd><span>AUTOCOMBAT</span><small id="assist-combat-info"></small></button>
     </div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
-    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div><div class="ordnance" id="ordnance"><div class="orow torp" id="orow-torp"><span>TORPEDOES</span><div class="torp-pips" id="torp-pips"></div><kbd>X</kbd></div><div class="orow oc hidden" id="orow-oc"><span>OVERCHARGE</span><div class="meter"><i id="oc-bar"></i></div><b id="oc-time"></b></div><div class="orow ae hidden" id="orow-ae"><span>AEGIS</span><div class="meter"><i id="ae-bar"></i></div><b id="ae-val"></b></div></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>X</kbd> / R-CLICK · TORPEDO</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>Z</kbd> · BRAKE / CREEP</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
+    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div><div class="ordnance" id="ordnance"><div class="orow torp" id="orow-torp"><span>TORPEDOES</span><div class="torp-pips" id="torp-pips"></div><kbd>X</kbd></div><div class="orow oc hidden" id="orow-oc"><span>OVERCHARGE</span><div class="meter"><i id="oc-bar"></i></div><b id="oc-time"></b></div><div class="orow ae hidden" id="orow-ae"><span>AEGIS</span><div class="meter"><i id="ae-bar"></i></div><b id="ae-val"></b></div></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>X</kbd> / R-CLICK · TORPEDO</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>R</kbd> / <kbd>F</kbd> · THROTTLE · <kbd>Z</kbd> ALL STOP</span><span><kbd>+</kbd> / <kbd>−</kbd> · RADAR ZOOM</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="throttle-row"><span>THROTTLE</span><div class="meter throttle"><i id="throttle-bar"></i></div><b id="throttle-value">100%</b></div><div class="meter boost"><i id="energy-bar"></i></div></div></div>
     <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div id="radar-supply" class="radar-supply" role="status"></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span><span class="obj">⌖ OBJECTIVE</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t) && !isCombatPickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-legend supplies combat">${PICKUP_TYPES.filter(isCombatPickup).map(t => `<span style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">⬢ ${t === 'torpedo' ? 'TORPEDO' : t.toUpperCase()}</span>`).join('')}</div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET · RINGS SHOW KM</div></aside>
     <div id="recovery-status" class="recovery-status" role="status" aria-live="polite"></div>
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
   <section id="pause" class="overlay hidden" aria-labelledby="pause-title"><div class="modal"><span class="eyebrow">FLIGHT SYSTEMS ON STANDBY</span><h2 id="pause-title">HOLDING<br><span>POSITION.</span></h2><p>Take a breath, pilot. The frontier can wait.</p><button id="resume" class="launch-button flex items-center justify-between">RESUME FLIGHT ${arrow}</button><button id="abort" class="secondary-button">RETURN TO HANGAR</button></div></section>
-  <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="modal"><span id="result-eyebrow" class="eyebrow"></span><h2 id="result-title"></h2><p id="result-copy"></p><div id="result-breakdown" class="result-breakdown" aria-label="Mission breakdown"></div><div id="result-records" class="result-records" role="status"></div><div class="result-stats flex justify-between"><div><span class="meta-label">FINAL SCORE</span><strong id="final-score"></strong></div><div><span class="meta-label">CONFIRMED KILLS</span><strong id="final-kills"></strong></div></div><button id="next-chapter" class="launch-button hidden flex items-center justify-between"><span id="next-chapter-label">NEXT CHAPTER</span>${arrow}</button><button id="retry" class="launch-button flex items-center justify-between"><span id="retry-label">DEPLOY AGAIN</span>${arrow}</button><button id="return" class="secondary-button">RETURN TO HANGAR</button></div></section>
+  <section id="results" class="overlay hidden" aria-labelledby="result-title"><canvas id="result-fx" class="result-fx" aria-hidden="true"></canvas><div class="modal"><div class="result-crest" aria-hidden="true">${emblem}</div><span id="result-eyebrow" class="eyebrow"></span><h2 id="result-title"></h2><p id="result-copy"></p><div id="result-breakdown" class="result-breakdown" aria-label="Mission breakdown"></div><div id="result-rail" class="result-rail" aria-label="Campaign progress"></div><div id="result-records" class="result-records" role="status"></div><div class="result-stats flex justify-between"><div><span class="meta-label">FINAL SCORE</span><strong id="final-score"></strong></div><div><span class="meta-label">CONFIRMED KILLS</span><strong id="final-kills"></strong></div></div><button id="next-chapter" class="launch-button hidden flex items-center justify-between"><span id="next-chapter-label">NEXT CHAPTER</span>${arrow}</button><button id="retry" class="launch-button flex items-center justify-between"><span id="retry-label">DEPLOY AGAIN</span>${arrow}</button><button id="return" class="secondary-button">RETURN TO HANGAR</button></div></section>
   <dialog id="settings"><form method="dialog"><button class="dialog-close" aria-label="Close game settings">×</button><span class="eyebrow">FLIGHT CONFIGURATION</span><h2>GAME SETTINGS</h2><label class="setting-row" for="difficulty"><span>DIFFICULTY<small>Enemy aggression and recovery generosity</small></span><select id="difficulty"><option value="relaxed">Relaxed</option><option value="standard" selected>Standard</option><option value="veteran">Veteran</option></select></label><label class="setting-row" for="collisions-setting"><span>PHYSICAL COLLISIONS<small>Spacecraft, asteroids, planets and carriers</small></span><input id="collisions-setting" type="checkbox" checked></label><label class="setting-row" for="damage-setting"><span>PLAYER DAMAGE<small>Off: your hull and shields ignore incoming damage</small></span><input id="damage-setting" type="checkbox" checked></label><label class="setting-row" for="capture-setting"><span>CAPTURE MOUSE<small>Lock and hide cursor during flight; Escape releases it</small></span><input id="capture-setting" type="checkbox"></label><label class="setting-row sensitivity-row" for="mouse-sensitivity"><span>MOUSE SENSITIVITY<small>Scales both capture mode and free-cursor steering · M toggles capture</small></span><div class="sensitivity-control"><output id="sensitivity-value" for="mouse-sensitivity">5.0×</output><input id="mouse-sensitivity" type="range" min="0.5" max="10" step="0.5" value="5" aria-label="Mouse sensitivity"></div></label><label class="setting-row" for="star-density"><span>STARFIELD DENSITY<small>Distant stars and the streaking motion stars</small></span><div class="range-control"><output id="star-density-value" for="star-density">100%</output><input id="star-density" type="range" min="0" max="200" step="25" value="100" aria-label="Starfield density"></div></label><label class="setting-row" for="panel-translucency"><span>PANEL TRANSLUCENCY<small>How see-through every panel, card and dialog is</small></span><div class="range-control"><output id="panel-translucency-value" for="panel-translucency">40%</output><input id="panel-translucency" type="range" min="0" max="80" step="5" value="40" aria-label="Panel translucency"></div></label><label class="setting-row" for="panel-rounding"><span>PANEL ROUNDING<small>0 keeps the original sharp, chamfered look</small></span><div class="range-control"><output id="panel-rounding-value" for="panel-rounding">0 px</output><input id="panel-rounding" type="range" min="0" max="24" step="2" value="0" aria-label="Panel rounding"></div></label><p class="small-copy">Collisions and player damage are independent. Disabling damage keeps your weapons and power-up collection active. Mouse capture begins on Launch or Resume, with browser permission.</p><button class="secondary-button">APPLY & CLOSE</button></form></dialog>
-  <dialog id="manual"><form method="dialog"><button class="dialog-close" aria-label="Close flight manual">×</button><span class="eyebrow">PILOT BRIEFING / 07</span><h2>FLIGHT MANUAL</h2><p><b>CAMPAIGN</b> — seven chapters with different objectives: eliminate, scan, infiltrate, retrieve, defend, navigate and hunt, ending with the Leviathan. Clear a chapter to unlock the next, earn a permanent upgrade on your first clear and chase S-ranks by beating par time with little damage. Use <kbd>[</kbd> / <kbd>]</kbd> on the start screen to browse chapters. <b>ARCADE</b> — Operation Shattered Orbit: clear combat hostiles across five waves. Fighters make attack passes, interceptors chase aggressively, and heavier warships turn slowly. Shuttles and freighters flee without firing: optional bonus targets, not mission blockers. Fly away to break pursuit and recover using shield, energy, and hull-repair supplies.</p><dl><dt>MOUSE / WASD / ARROWS</dt><dd>Yaw and pitch your ship. Point your nose where you want to fly; thrust carries you forward in that direction.</dd><dt>SCROLL WHEEL / Q / E</dt><dd>Roll around your ship’s forward axis. Your chase camera banks with you.</dd><dt>M / MOUSE CAPTURE</dt><dd>Toggle cursor capture. Adjust capture sensitivity from 0.5× to 10× in Settings. Escape releases capture and pauses.</dd><dt>CLICK / SPACE</dt><dd>Hold to fire your primary cannons.</dd><dt>SHIFT</dt><dd>Boost. Energy replenishes when released.</dd><dt>Z · BRAKE</dt><dd>Hold to throttle down to a quarter speed. Needed for slow scans and for creeping through listening-post sensor nets without raising an alarm.</dd><dt>X / RIGHT-CLICK · PROTON TORPEDO</dt><dd>Fires a homing torpedo at your lock (or whatever is near your nose). Heavy splash damage, ×1.6 against Leviathan systems. Fighters carry 4, bombers 8, destroyers 6; interceptors, shuttles and freighters carry none.</dd><dt>ESC</dt><dd>Pause or resume your mission.</dd><dt>T / SHIFT+T</dt><dd>Lock a target: first press picks the hostile closest to your nose, further presses cycle outward. Shift+T clears it. You can also click a contact on the radar. A bracket marks the target on screen with a lead pip showing where to aim; when it is off-screen an edge arrow shows which way to turn.</dd><dt>P · AUTOPILOT</dt><dd>Flies toward your target (or the nearest hostile, capital ship or useful supply) without firing and steers around hazards. Any steering key, a big mouse movement in capture mode, or pressing P again takes control back.</dd><dt>C · AUTOCOMBAT</dt><dd>Full combat assist: hunts targets with lead aiming, fires when lined up, evades collisions, boosts to close distance, falls back to collect supplies when hurt, and attacks the Leviathan’s shield domes then bridge. It is an assistant, not an ace: stay alert.</dd><dt>TACTICAL RADAR</dt><dd>Red diamonds: combat hostiles. Amber outlines: optional fleeing ships. Supplies are color-coded crosses: yellow energy, blue shield, green hull repair; larger ringed diamonds are permanent upgrades (orange hull, violet defense, pink attack); hexagons are combat boosts (red torpedoes, magenta overcharge, white aegis overshield). In campaign chapters a glowing cyan ⌖ marker is your current objective and dashed red rings are sensor pylons; the targeting arrow guides you there when nothing is locked. A dashed white ring marks your locked target, and you can click any hostile on the radar to lock it. Use + / − to zoom from 250 to 8,000 km. Top is ahead; bottom is behind. ▲ / ▼ indicate relative altitude. Distant contacts stay on the radar edge.</dd><dt>WAVE 5 · THE LEVIATHAN</dt><dd>A capital carrier must be destroyed to win. Shoot the two shield domes first, then the command bridge; the flight deck silences the ventral turrets. Main-hull hits are weak. Keep weaving: its turrets lead your motion, so flying in a straight line is dangerous. Radar marks it in pink.</dd><dt>BOUNDS</dt><dd>Optional collision-sphere visualization. Off by default; impact flashes appear on spacecraft surfaces.</dd></dl><div class="manual-warning"><strong>WATCH YOUR VECTOR.</strong><p>Asteroid impacts scale with relative speed, mass, and armor. Shields absorb damage first. Shields regenerate after a quiet interval — hull damage is permanent.</p></div><p class="small-copy">On touchscreens, drag on the space view to steer and fire. Desktop keyboard and mouse recommended.</p><button class="secondary-button">UNDERSTOOD</button></form></dialog>
+  <dialog id="manual"><form method="dialog"><button class="dialog-close" aria-label="Close flight manual">×</button><span class="eyebrow">PILOT BRIEFING / 07</span><h2>FLIGHT MANUAL</h2><p><b>CAMPAIGN</b> — seven chapters with different objectives: eliminate, scan, infiltrate, retrieve, defend, navigate and hunt, ending with the Leviathan. Clear a chapter to unlock the next, earn a permanent upgrade on your first clear and chase S-ranks by beating par time with little damage. Use <kbd>[</kbd> / <kbd>]</kbd> on the start screen to browse chapters. <b>ARCADE</b> — Operation Shattered Orbit: clear combat hostiles across five waves. Fighters make attack passes, interceptors chase aggressively, and heavier warships turn slowly. Shuttles and freighters flee without firing: optional bonus targets, not mission blockers. Fly away to break pursuit and recover using shield, energy, and hull-repair supplies.</p><dl><dt>MOUSE / WASD / ARROWS</dt><dd>Yaw and pitch your ship. Point your nose where you want to fly; thrust carries you forward in that direction.</dd><dt>SCROLL WHEEL / Q / E</dt><dd>Roll around your ship’s forward axis. Your chase camera banks with you.</dd><dt>M / MOUSE CAPTURE</dt><dd>Toggle cursor capture. Adjust capture sensitivity from 0.5× to 10× in Settings. Escape releases capture and pauses.</dd><dt>CLICK / SPACE</dt><dd>Hold to fire your primary cannons.</dd><dt>SHIFT</dt><dd>Boost. Energy replenishes when released.</dd><dt>R / F · THROTTLE · Z · ALL STOP</dt><dd>Hold R to raise and F to lower engine throttle from 100% down to a dead stop; Z cuts it to zero at once. Your ship coasts to a halt, which you need for slow beacon scans and for creeping through listening-post sensor nets. Boost (Shift) overrides throttle; autopilot cruises at full power except where a scan or stealth stage makes it creep.</dd><dt>+ / − · RADAR ZOOM</dt><dd>Zoom the tactical radar in and out (same as the + / − buttons).</dd><dt>X / RIGHT-CLICK · PROTON TORPEDO</dt><dd>Fires a homing torpedo at your lock (or whatever is near your nose). Heavy splash damage, ×1.6 against Leviathan systems. Fighters carry 4, bombers 8, destroyers 6; interceptors, shuttles and freighters carry none.</dd><dt>ESC</dt><dd>Pause or resume your mission.</dd><dt>T / SHIFT+T</dt><dd>Lock a target: first press picks the hostile closest to your nose, further presses cycle outward. Shift+T clears it. You can also click a contact on the radar. A bracket marks the target on screen with a lead pip showing where to aim; when it is off-screen an edge arrow shows which way to turn.</dd><dt>P · AUTOPILOT</dt><dd>Flies toward your target (or the nearest hostile, capital ship or useful supply) without firing and steers around hazards. Any steering key, a big mouse movement in capture mode, or pressing P again takes control back.</dd><dt>C · AUTOCOMBAT</dt><dd>Full combat assist: hunts targets with lead aiming, fires when lined up, evades collisions, boosts to close distance, falls back to collect supplies when hurt, and attacks the Leviathan’s shield domes then bridge. It is an assistant, not an ace: stay alert.</dd><dt>TACTICAL RADAR</dt><dd>Red diamonds: combat hostiles. Amber outlines: optional fleeing ships. Supplies are color-coded crosses: yellow energy, blue shield, green hull repair; larger ringed diamonds are permanent upgrades (orange hull, violet defense, pink attack); hexagons are combat boosts (red torpedoes, magenta overcharge, white aegis overshield). In campaign chapters a glowing cyan ⌖ marker is your current objective and dashed red rings are sensor pylons; the targeting arrow guides you there when nothing is locked. A dashed white ring marks your locked target, and you can click any hostile on the radar to lock it. Use + / − to zoom from 250 to 8,000 km. Top is ahead; bottom is behind. ▲ / ▼ indicate relative altitude. Distant contacts stay on the radar edge.</dd><dt>WAVE 5 · THE LEVIATHAN</dt><dd>A capital carrier must be destroyed to win. Shoot the two shield domes first, then the command bridge; the flight deck silences the ventral turrets. Main-hull hits are weak. Keep weaving: its turrets lead your motion, so flying in a straight line is dangerous. Radar marks it in pink.</dd><dt>BOUNDS</dt><dd>Optional collision-sphere visualization. Off by default; impact flashes appear on spacecraft surfaces.</dd></dl><div class="manual-warning"><strong>WATCH YOUR VECTOR.</strong><p>Asteroid impacts scale with relative speed, mass, and armor. Shields absorb damage first. Shields regenerate after a quiet interval — hull damage is permanent.</p></div><p class="small-copy">On touchscreens, drag on the space view to steer and fire. Desktop keyboard and mouse recommended.</p><button class="secondary-button">UNDERSTOOD</button></form></dialog>
 `;
 const el = (id: string) => document.getElementById(id)!;
 const text = (id: string, value: string | number) => { const target = el(id); const next = String(value); if (target.textContent !== next) target.textContent = next; };
@@ -409,11 +409,93 @@ el('radar').addEventListener('click', event => {
   for (const hit of radarHits) { const d = Math.hypot(hit.x - x, hit.y - y); if (d < bestDistance) { bestDistance = d; best = hit; } }
   if (best) game?.setTarget(best.kind, best.id);
 });
+const ddHtml = (value: string) => {
+  let match = /^(\d+)$/.exec(value);
+  if (match) return `<dd data-count="${match[1]}" data-fmt="int">0</dd>`;
+  match = /^(\d+)%$/.exec(value);
+  if (match) return `<dd data-count="${match[1]}" data-fmt="pct">0%</dd>`;
+  match = /^(\d+):(\d{2})$/.exec(value);
+  if (match) return `<dd data-count="${Number(match[1]) * 60 + Number(match[2])}" data-fmt="time">0:00</dd>`;
+  return `<dd>${value}</dd>`;
+};
+function runCountUps(root: HTMLElement) {
+  const nodes = root.querySelectorAll<HTMLElement>('[data-count]');
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fmt = (node: HTMLElement, value: number) => { const kind = node.dataset.fmt; node.textContent = kind === 'pct' ? `${Math.round(value)}%` : kind === 'time' ? formatDuration(Math.round(value)) : String(Math.round(value)); };
+  nodes.forEach((node, index) => {
+    const target = Number(node.dataset.count);
+    if (reduce) { fmt(node, target); return; }
+    const start = performance.now() + 450 + index * 110, duration = 900;
+    const tick = (now: number) => {
+      const t = Math.min(1, Math.max(0, (now - start) / duration));
+      fmt(node, target * (1 - Math.pow(1 - t, 3)));
+      if (t < 1 && !root.closest('.hidden')) requestAnimationFrame(tick); else if (t >= 1) fmt(node, target);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+let lastRank = '—';
+let fxFrame = 0;
+function stopVictoryFx() { cancelAnimationFrame(fxFrame); const canvas = el('result-fx') as HTMLCanvasElement; canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height); }
+function startVictoryFx(rank: string) {
+  stopVictoryFx();
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const canvas = el('result-fx') as HTMLCanvasElement;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.floor(window.innerWidth * dpr); canvas.height = Math.floor(window.innerHeight * dpr);
+  const palettes: Record<string, string[]> = { S: ['#ff4fa3', '#ffd35a', '#ffffff', '#83e5e7'], A: ['#83e5e7', '#b5f5f6', '#ffffff', '#62d9ff'], B: ['#ffbf69', '#ffe0a8', '#ffffff'], C: ['#c7d6de', '#ffbf69', '#9db1bd'] };
+  const colors = palettes[rank] ?? palettes.B;
+  type P = { x: number; y: number; vx: number; vy: number; life: number; max: number; color: string; size: number };
+  const particles: P[] = [];
+  const burst = (x: number, y: number, count: number) => {
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    for (let i = 0; i < count; i += 1) {
+      const angle = Math.random() * Math.PI * 2, speed = (1 + Math.random() * 4.6) * dpr;
+      particles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life: 0, max: 60 + Math.random() * 50, color, size: (1 + Math.random() * 1.8) * dpr });
+    }
+  };
+  const bursts = rank === 'S' ? 9 : rank === 'A' ? 6 : 4;
+  let frame = 0, fired = 0;
+  const loop = () => {
+    if (el('results').classList.contains('hidden')) return;
+    frame += 1;
+    if (fired < bursts && frame % 26 === 1) { fired += 1; burst(canvas.width * (0.15 + Math.random() * 0.7), canvas.height * (0.15 + Math.random() * 0.4), 70); }
+    ctx.globalCompositeOperation = 'destination-out'; ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = particles.length - 1; i >= 0; i -= 1) {
+      const p = particles[i];
+      p.life += 1; p.vy += 0.045 * dpr; p.vx *= 0.985; p.vy *= 0.985; p.x += p.vx; p.y += p.vy;
+      if (p.life > p.max) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = 1 - p.life / p.max; ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    // Slow rising embers keep the screen alive after the bursts finish.
+    if (frame % 7 === 0) particles.push({ x: Math.random() * canvas.width, y: canvas.height + 4, vx: (Math.random() - 0.5) * 0.4 * dpr, vy: -(0.8 + Math.random() * 1.2) * dpr, life: 0, max: 160, color: colors[0], size: 1.2 * dpr });
+    fxFrame = requestAnimationFrame(loop);
+  };
+  fxFrame = requestAnimationFrame(loop);
+}
+function renderResultRail(items: { label: string; state: 'done' | 'current' | 'next' | 'todo' }[]) {
+  el('result-rail').innerHTML = items.map(item => `<span class="rr ${item.state}"><i></i><em>${item.label}</em></span>`).join('');
+}
+function presentResults(won: boolean, rank: string) {
+  const section = el('results');
+  section.classList.toggle('victory', won); section.classList.toggle('defeat', !won);
+  section.dataset.rank = rank;
+  show('results', true);
+  runCountUps(el('result-breakdown'));
+  if (won) startVictoryFx(rank); else stopVictoryFx();
+}
 function renderBreakdown(state: GameSnapshot, won: boolean) {
   const summary = state.summary;
   const target = el('result-breakdown');
-  if (!summary) { target.innerHTML = ''; el('result-records').innerHTML = ''; return; }
+  if (!summary) { target.innerHTML = ''; el('result-records').innerHTML = ''; el('result-rail').innerHTML = ''; lastRank = '—'; return; }
   const rank = getMissionRank(summary, won);
+  lastRank = rank;
+  renderResultRail(['WAVE 1', 'WAVE 2', 'WAVE 3', 'WAVE 4', 'LEVIATHAN'].map((label, index) => ({ label, state: won || index + 1 < state.wave ? 'done' : index + 1 === state.wave ? 'current' : 'todo' })));
   const bossValue = summary.bossTimeSec !== null ? formatDuration(summary.bossTimeSec) : summary.bossEngaged ? `${summary.bossHullPct ?? 100}% LEFT` : 'NOT ENGAGED';
   const rows: [string, string, string?][] = [
     ['FLIGHT TIME', formatDuration(summary.durationSec)],
@@ -427,16 +509,18 @@ function renderBreakdown(state: GameSnapshot, won: boolean) {
   const record = records[state.ship];
   const recordLine = record.bestRank ? `BEST WITH THIS SHIP · RANK ${record.bestRank}${record.fastestBossSec !== null ? ` · ${formatDuration(record.fastestBossSec)}` : ''} · ${record.wins} WIN${record.wins === 1 ? '' : 'S'}` : '';
   el('result-records').innerHTML = `${badges.map(b => `<span class="badge">${b}</span>`).join('')}${recordLine ? `<small>${recordLine}</small>` : ''}`;
-  target.innerHTML = `<div class="rank ${rank === '—' ? 'unranked' : ''}" data-rank="${rank}"><span>MISSION RANK</span><b>${rank}</b></div><dl>${rows.map(([label, value, note]) => `<div><dt>${label}</dt><dd>${value}</dd>${note ? `<small>${note}</small>` : ''}</div>`).join('')}</dl>`;
+  target.innerHTML = `<div class="rank ${rank === '—' ? 'unranked' : ''}" data-rank="${rank}"><span>MISSION RANK</span><b>${rank}</b></div><dl>${rows.map(([label, value, note]) => `<div><dt>${label}</dt>${ddHtml(value)}${note ? `<small>${note}</small>` : ''}</div>`).join('')}</dl>`;
 }
 function showChapterResult(state: GameSnapshot, chapter: ChapterDef, won: boolean) {
   const summary = state.summary;
   const next = getChapterByNumber(chapter.number + 1);
   lastChapterResult = undefined;
   let rank = '—';
+  lastRank = '—';
   if (won) {
     const result = { timeSec: summary?.durationSec ?? chapter.parTimeSec, damageTaken: summary?.damageTaken ?? 0, maxDurability: state.maxHull + state.maxShield, accuracy: summary?.accuracy ?? 0, score: state.score };
     rank = getChapterRank(chapter, result);
+    lastRank = rank;
     lastChapterResult = completeChapter(campaign, chapter, result);
     campaign = lastChapterResult.progress;
     saveProgress(campaign, safeStorage);
@@ -445,6 +529,7 @@ function showChapterResult(state: GameSnapshot, chapter: ChapterDef, won: boolea
     selectedChapter = next ? next.number : chapter.number;
     renderChapters();
   }
+  renderResultRail(CHAPTERS.map(entry => ({ label: String(entry.number).padStart(2, '0'), state: entry.number === chapter.number ? (won ? 'done' : 'current') : campaign.completed[entry.id] ? 'done' : won && next && entry.number === next.number ? 'next' : 'todo' })));
   const padded = String(chapter.number).padStart(2, '0');
   text('result-eyebrow', won ? `CHAPTER ${padded} / ${chapter.codename.toUpperCase()} / COMPLETE` : `CHAPTER ${padded} / ${chapter.codename.toUpperCase()} / FAILED`);
   el('result-title').innerHTML = won ? `${chapter.title.toUpperCase()}<br><span>CLEARED.</span>` : 'MISSION<br><span>FAILED.</span>';
@@ -465,7 +550,7 @@ function showChapterResult(state: GameSnapshot, chapter: ChapterDef, won: boolea
   ];
   const badges = [lastChapterResult?.firstClear ? 'FIRST CLEAR' : '', lastChapterResult?.newRank && !lastChapterResult.firstClear ? 'NEW BEST RANK' : '', lastChapterResult?.newBestTime && !lastChapterResult.firstClear ? 'NEW BEST TIME' : '', lastChapterResult?.unlockedNext && next ? `CHAPTER ${next.number} UNLOCKED` : '', reward?.upgrade ? `${UPGRADE_LABEL[reward.upgrade]} UPGRADE INSTALLED` : ''].filter(Boolean);
   el('result-records').innerHTML = badges.map(b => `<span class="badge">${b}</span>`).join('');
-  target.innerHTML = `<div class="rank ${rank === '—' ? 'unranked' : ''}" data-rank="${rank}"><span>CHAPTER RANK</span><b>${rank}</b></div><dl>${rows.map(([label, value, note]) => `<div><dt>${label}</dt><dd>${value}</dd>${note ? `<small>${note}</small>` : ''}</div>`).join('')}</dl>`;
+  target.innerHTML = `<div class="rank ${rank === '—' ? 'unranked' : ''}" data-rank="${rank}"><span>CHAPTER RANK</span><b>${rank}</b></div><dl>${rows.map(([label, value, note]) => `<div><dt>${label}</dt>${ddHtml(value)}${note ? `<small>${note}</small>` : ''}</div>`).join('')}</dl>`;
 }
 let bossBannerTimer = 0;
 let resultsTimer = 0;
@@ -484,7 +569,7 @@ function update(state: GameSnapshot) {
   if (displayedMode !== state.mode) {
     displayedMode = state.mode;
     show('menu', state.mode === 'menu'); show('hud', state.mode === 'playing' || state.mode === 'paused');
-    show('pause', state.mode === 'paused'); show('results', false); window.clearTimeout(resultsTimer); show('pause-button', state.mode === 'playing');
+    show('pause', state.mode === 'paused'); show('results', false); stopVictoryFx(); window.clearTimeout(resultsTimer); show('pause-button', state.mode === 'playing');
     document.body.dataset.mode = state.mode;
     if (state.mode === 'menu') hideBossBanner();
     if (state.mode === 'paused') el('resume').focus();
@@ -509,7 +594,7 @@ function update(state: GameSnapshot) {
       text('final-score', state.score.toLocaleString()); text('final-kills', state.kills);
       best = Math.max(best, state.score);
       try { localStorage.setItem('void-squadron-best', String(best)); } catch { /* The game remains playable without persistence. */ }
-      resultsTimer = window.setTimeout(() => { if (latest?.mode === 'ended') { show('results', true); el(won && chapter && getChapterByNumber(chapter.number + 1) ? 'next-chapter' : 'retry').focus(); } }, won ? 0 : 2300);
+      resultsTimer = window.setTimeout(() => { if (latest?.mode === 'ended') { presentResults(won, lastRank); el(won && chapter && getChapterByNumber(chapter.number + 1) ? 'next-chapter' : 'retry').focus(); } }, won ? 0 : 2300);
     }
   }
   if (state.mode === 'playing' || state.mode === 'paused') drawRadar();
@@ -582,6 +667,9 @@ function update(state: GameSnapshot) {
     if (left !== null) { text('ob-time', formatDuration(Math.max(0, Math.ceil(left)))); el('ob-time-row').classList.toggle('hot', left < 20); }
   }
   el('speed').parentElement!.parentElement!.classList.toggle('braking', Boolean(state.braking));
+  const throttle = state.throttle ?? 100;
+  el('throttle-bar').style.width = `${throttle}%`; text('throttle-value', `${throttle}%`);
+  el('throttle-bar').parentElement!.classList.toggle('idle', throttle === 0);
   text('wave', String(state.wave).padStart(2, '0')); text('enemies', state.enemies);
   text('score', String(state.score).padStart(6, '0')); text('combo', state.combo > 1 ? `${state.combo}× CHAIN` : '');
   text('shield-value', Math.ceil(state.shield)); text('hull-value', Math.ceil(state.hull));
@@ -709,6 +797,10 @@ window.addEventListener('keydown', event => {
     }
   }
   if (event.code === 'Enter' && (!latest || latest.mode === 'menu') && ((event.target as HTMLElement).matches('body, [data-ship], [data-chapter], .mode-tab'))) { event.preventDefault(); if (!(menuMode === 'campaign' && (el('launch-chapter') as HTMLButtonElement).disabled)) launchMenuSelection(); }
+  if (latest?.mode === 'playing' || latest?.mode === 'paused') {
+    if (event.key === '+' || event.key === '=' || event.code === 'NumpadAdd') { event.preventDefault(); zoomRadar(.5); return; }
+    if (event.key === '-' || event.key === '_' || event.code === 'NumpadSubtract') { event.preventDefault(); zoomRadar(2); return; }
+  }
   if (latest?.mode === 'playing') {
     if (event.code === 'KeyT') { event.preventDefault(); if (event.shiftKey) game?.clearTarget(); else game?.cycleTarget(); return; }
     if (event.code === 'KeyP') { event.preventDefault(); game?.toggleAutoMode('autopilot'); return; }
