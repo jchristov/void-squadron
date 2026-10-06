@@ -1,6 +1,6 @@
 # VOID SQUADRON
 
-An original cinematic browser-based 3D space shooter. Built with TypeScript, Three.js, and Tailwind CSS. All spacecraft, planets, nebulae, asteroids, visual effects, and audio are generated locally — no ripped game assets, external fonts, or asset services.
+An original cinematic browser-based 3D space shooter. Built with TypeScript, Three.js, and Tailwind CSS. All spacecraft, planets, nebulae, asteroids, visual effects, and audio are generated locally — no ripped game assets or asset services. The UI typefaces (Chakra Petch and JetBrains Mono, SIL OFL) are bundled from `@fontsource` packages; nothing is fetched from a CDN at runtime.
 
 ## Run locally
 
@@ -22,7 +22,23 @@ Run the pure gameplay-rule tests with `npm test`.
 
 ## Mission
 
-The start screen is a single fullscreen composition with no scrolling on desktop: mission briefing and launch button on the left, a live 3D hangar scene in the middle, and a **ship dossier** on the right with role, description, relative stat bars (hull, shield, speed, armor, firepower; amber segments show your permanent upgrades), upgrade pips and your personal record. A compact row of six spacecraft cards sits along the bottom; click one, press **1–6**, or use **← →** to switch. On tablets and phones the same content stacks into a scrolling layout. Press **Launch Mission** or Enter to deploy. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
+The start screen is a single fullscreen composition with no scrolling on desktop: mission briefing and launch button on the left, a live 3D scene in the middle (your craft rotates and banks on a dock cradle beside a rotating ring station with blinking lights and escorts flying past), and a **ship dossier** on the right with role, description, relative stat bars (hull, shield, speed, armor, firepower; amber segments show your permanent upgrades), upgrade pips and your personal record. A compact row of six spacecraft cards (with images rendered from the real 3D models) sits along the bottom; click one, press **1–6**, or use **← →** to switch. On tablets and phones the same content stacks into a scrolling layout. Press **Launch Mission** or Enter to deploy. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
+
+### Campaign
+
+The start screen has two tabs. **Campaign** is seven chapters, each with a different objective type; **Arcade** is the original five-wave *Operation Shattered Orbit* ending with the Leviathan.
+
+| # | Chapter | Objective | Notes |
+| --- | --- | --- | --- |
+| 1 | Ember Wake | Eliminate a raider patrol | Gentle opener |
+| 2 | Silent Choir | Scan three beacons, then **infiltrate** a listening-post sensor net | Hold speed under the scan limit (Z), then creep: detection rises with speed, boost and firing; one alarm is forgiven |
+| 3 | Glass Harvest | Retrieve artefacts and extract | Wreck-field salvage |
+| 4 | Relay at Dusk | Defend a relay tender until the convoy jumps | Raiders hunt the asset, its hull bar is on the HUD |
+| 5 | Stone Tempest | Race through asteroid gates | Par time under 90 s |
+| 6 | Crown of Knives | Hunt three named ace raiders | Escorts arrive in a trickle |
+| 7 | Leviathan Falls | Destroy the Leviathan | Final chapter |
+
+Chapters unlock in order. The first clear of a chapter grants a permanent upgrade (hull, defense or attack) on the ship you flew, and each chapter keeps a best rank (S–C, from time against par, damage taken and accuracy) and best time. Progress is stored locally (`void-squadron.campaign.v1`). The in-flight **objective card** shows chapter, stage, progress, a detection bar during stealth, asset hull while defending, and a countdown when a stage is timed; objectives also appear on the radar (cyan ⌖) and guide the targeting arrow when nothing is locked. Objective layouts are shrunk to fit inside the play volume. Chapter content lives in `src/campaign.ts` and is covered by `src/campaign.test.ts`.
 
 ### Controls
 
@@ -32,13 +48,16 @@ The start screen is a single fullscreen composition with no scrolling on desktop
 | Scroll wheel / Q / E | Roll around the ship’s forward axis |
 | Hold left mouse / Space | Fire primary weapons |
 | Hold Shift | Boost while energy is available |
+| Hold Z | **Brake / creep** at a quarter of cruise speed (needed for scans and stealth) |
+| X / right mouse | Fire a homing **proton torpedo** (fighter 4, interceptor 0, bomber 8, shuttle 0, freighter 0, destroyer 6) |
 | M | Toggle mouse capture; during menus enables it for next launch |
 | Escape | Pause / resume |
 | T / Shift+T | Lock a target (nearest to your nose first, then cycle) / clear the lock; clicking a radar contact also locks it |
 | P | Toggle **autopilot** (flies to the target, nearest hostile or useful supply; never fires) |
 | C | Toggle **autocombat** (hunts, aims with lead, fires, evades, boosts, retreats to supplies when hurt) |
 | 1–6 / ← → (start screen) | Pick a spacecraft; the dossier and 3D preview update |
-| Enter / launch button | Launch from the hangar |
+| [ / ] (start screen, Campaign tab) | Browse chapters |
+| Enter / launch button | Launch the selected chapter or arcade mission |
 | SOUND | Toggle synthesized audio |
 | FX | Toggle high / performance rendering |
 | BOUNDS | Toggle collision-sphere visualization (off by default) |
@@ -116,6 +135,11 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/summary.test.ts` — summary and ranking tests.
 - `src/records.ts` — per-ship persistent records (rank, boss time, score, wins).
 - `src/records.test.ts` — records persistence and update tests.
+- `src/campaign.ts` — pure campaign module: the seven chapters, stage trackers (eliminate, scan, stealth, retrieve, defend, navigate, hunt, boss), layouts, ranks and progress persistence.
+- `src/campaign.test.ts` — campaign tests.
+- `src/station.ts` — procedural space station and dock cradle used by the start screen.
+- `src/menuMotion.ts` — pure choreography helpers for the start-screen hero craft, escorts and camera.
+- `src/thumbnails.ts` — renders the hangar tile images from the real 3D models.
 - `src/audio.ts` — locally synthesized combat audio.
 - `src/rules.test.ts` — gameplay-rule regression tests.
 

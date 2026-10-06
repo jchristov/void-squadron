@@ -43,6 +43,7 @@ import {
   AEGIS,
   OVERCHARGE,
   SHIP_MODEL_SCALE,
+  SHIP_TARGET_RADIUS,
   TORPEDO,
   absorbWithOvershield,
   canUseCombatPickup,
@@ -58,6 +59,7 @@ import {
   getComboAfterKill,
   getEnemyAttackTuning,
   getForwardSpeed,
+  BRAKE_SPEED_FACTOR,
   getMaxConcurrentCombat,
   getKillScore,
   getPickupSpawnAllowance,
@@ -109,6 +111,9 @@ import {
   type CapitalShipTurret,
 } from './capital.ts';
 import { computeAccuracy, type MissionSummary } from './summary.ts';
+import { createDockCradle, createSpaceStation, type AnimatedGroup } from './station.ts';
+import { createChapterRun, describeObjectiveHud, type ChapterDef, type ChapterRun, type Vec3 } from './campaign.ts';
+import { cameraSway, enterState, escortPosition, heroPose } from './menuMotion.ts';
 import { formatSpaceDistance } from './units.ts';
 import {
   bearingDegrees,
@@ -145,8 +150,23 @@ export interface GameSnapshot {
   pickupMessage?: string;
   recovery?: boolean;
   captureActive?: boolean;
+  braking?: boolean;
   difficulty?: Difficulty;
   summary?: MissionSummary;
+  campaign?: {
+    number: number;
+    id: string;
+    title: string;
+    stageIndex: number;
+    stageCount: number;
+    hud: { title: string; line: string; fraction: number; urgent: boolean };
+    hint: string;
+    detection?: number;
+    timeRemainingSec: number | null;
+    assetHull?: { current: number; max: number };
+    outcome: 'complete' | 'failed' | null;
+    failReason?: string;
+  } | null;
   autoMode?: AutoMode;
   autoStatus?: string;
   torpedoes?: number;
@@ -188,6 +208,7 @@ export interface FlightTelemetry {
   readonly projectiles: readonly Readonly<FlightTelemetryProjectile>[];
   readonly pickups?: readonly Readonly<FlightTelemetryPickup>[];
   readonly target?: Readonly<{ kind: 'enemy' | 'boss'; id: number }> | null;
+  readonly objective?: Readonly<{ points: readonly Readonly<{ x: number; y: number; z: number; kind: string; focus: boolean; done: boolean }>[]; asset: Readonly<TelemetryVector3> | null }> | null;
   readonly boss?: Readonly<{
     name: string;
     hull: number;
@@ -277,6 +298,8 @@ interface SpawnInstruction {
 
 interface EnemyEntity {
   id: number;
+  tag?: string;
+  assetHunter?: boolean;
   object: THREE.Group;
   shieldShell: THREE.Mesh;
   shipClass: ShipClass;
@@ -337,7 +360,7 @@ export type AutoMode = 'off' | 'autopilot' | 'combat';
 type TargetRef = { kind: 'enemy'; id: number } | { kind: 'boss' };
 
 export interface TargetGuidance {
-  kind: 'enemy' | 'boss';
+  kind: 'enemy' | 'boss' | 'objective';
   name: string;
   detail: string;
   hostile: boolean;
@@ -367,6 +390,15 @@ interface ResolvedTarget {
   hostile: boolean;
   hullPct: number;
   shieldPct: number;
+}
+
+interface ObjectiveMarker {
+  object: THREE.Group;
+  kind: 'beacon' | 'sensor' | 'post' | 'artefact' | 'gate' | 'extraction';
+  index: number;
+  radius: number;
+  done: boolean;
+  spin: number;
 }
 
 interface TorpedoEntity {
@@ -445,6 +477,13 @@ const LASER_UP_VECTOR = new THREE.Vector3(0, 0, 1);
 /** Hull radii before per-class scaling; the chase camera is tuned around these. */
 const LEGACY_SHIP_RADIUS: Record<ShipClass, number> = { fighter: 4.45, interceptor: 4.27, bomber: 5.46, shuttle: 4.49, freighter: 5.94, destroyer: 7.89 };
 const PICKUP_LABELS_SHORT: Record<PickupType, string> = { energy: 'ENERGY', shield: 'SHIELD', hull: 'HULL REPAIR', 'hull-upgrade': 'HULL UPGRADE', 'defense-upgrade': 'DEFENSE UPGRADE', 'attack-upgrade': 'ATTACK UPGRADE', torpedo: 'TORPEDOES', overcharge: 'OVERCHARGE', aegis: 'AEGIS' };
+/** On-screen radius of the start-screen hero craft: grows with hull class but sub-linearly so every craft stays prominent. */
+function menuHeroRadius(ship: ShipClass): number {
+  return 3.2 * Math.pow(SHIP_TARGET_RADIUS[ship], 0.62);
+}
+function menuHeroScale(ship: ShipClass): number {
+  return (SHIP_MODEL_SCALE[ship] * menuHeroRadius(ship)) / SHIP_TARGET_RADIUS[ship];
+}
 const POINTER_CAPTURE_SENSITIVITY = 2.25;
 // Free-cursor steering shares the sensitivity setting: at the 5x default, reaching full turn rate takes about a third of the half-screen deflection.
 const UNLOCKED_CURSOR_GAIN_PER_X = 0.6;
@@ -663,8 +702,13 @@ export class SpaceGame {
   private readonly effectLayer = new THREE.Group();
   private readonly pickupLayer = new THREE.Group();
   private readonly playerRoot = new THREE.Group();
-  private menuHero = createShipModel('fighter', { accent: 0xb6c8ff, scale: SHIP_MODEL_SCALE.fighter * 1.25, tint: 0x8a97aa });
-  private readonly menuCarrier = createCapitalCarrier();
+  private menuHero = createShipModel('fighter', { accent: 0xb6c8ff, scale: menuHeroScale('fighter'), tint: 0x8a97aa });
+  private readonly menuStation: AnimatedGroup = createSpaceStation();
+  private readonly menuCradle: AnimatedGroup = createDockCradle();
+  private menuHeroLight?: THREE.PointLight;
+  private heroEnterAt = -100;
+  private readonly menuHeroBase = new THREE.Vector3(3.4, -1.5, -10.5);
+  private readonly menuClock = { elapsed: 0 };
   private readonly gameplayCarrier = createCapitalCarrier();
   private readonly menuEscorts: THREE.Group[] = [];
   private readonly planet = createPlanet(24);
@@ -746,6 +790,16 @@ export class SpaceGame {
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
   private bossVictoryTimer = 0;
+  private campaignRun: ChapterRun | null = null;
+  private campaignChapter: ChapterDef | null = null;
+  private campaignStageIndex = -1;
+  private campaignOutcome: 'complete' | 'failed' | null = null;
+  private campaignFailReason: string | undefined;
+  private campaignElapsed = 0;
+  private campaignAsset: { object: THREE.Group; dir: THREE.Vector3; speed: number; radius: number; name: string } | null = null;
+  private objectiveMarkers: ObjectiveMarker[] = [];
+  private artefactTaken: boolean[] = [];
+  private readonly objectiveLayer = new THREE.Group();
   private torpedoes = 0;
   private torpedoCooldown = 0;
   private torpedoList: TorpedoEntity[] = [];
@@ -756,6 +810,8 @@ export class SpaceGame {
   private autoMode: AutoMode = 'off';
   private autoStatus = '';
   private autoBoost = false;
+  private autoBrake = false;
+  private brakeHeld = false;
   private autoFire = false;
   private readonly autoInput = { yaw: 0, pitch: 0, roll: 0 };
   private pilotRetreating = false;
@@ -865,6 +921,10 @@ export class SpaceGame {
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
       this.boostHeld = true;
     }
+    if (event.code === 'KeyZ') {
+      this.brakeHeld = true;
+      if (this.autoMode !== 'off') this.setAutoMode('off', 'MANUAL CONTROL');
+    }
     if (
       [
         'ArrowUp',
@@ -892,6 +952,9 @@ export class SpaceGame {
     }
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') {
       this.boostHeld = false;
+    }
+    if (event.code === 'KeyZ') {
+      this.brakeHeld = false;
     }
     if (this.heldKeys.delete(event.code)) {
       this.recomputeKeyboardAxes();
@@ -970,7 +1033,7 @@ export class SpaceGame {
     this.scene.fog = new THREE.FogExp2(0x040812, 0.0014);
     this.scene.add(this.environmentRoot, this.gameplayRoot, this.menuRoot);
     this.environmentRoot.add(this.backdropRoot, this.motionStarRoot, this.planetPivot, this.gameplayCarrier);
-    this.gameplayRoot.add(this.asteroidLayer, this.enemyLayer, this.laserLayer, this.effectLayer, this.pickupLayer, this.playerRoot);
+    this.gameplayRoot.add(this.objectiveLayer, this.asteroidLayer, this.enemyLayer, this.laserLayer, this.effectLayer, this.pickupLayer, this.playerRoot);
 
     this.buildScene();
     this.motionStars = this.createMotionStars();
@@ -1001,13 +1064,23 @@ export class SpaceGame {
   previewShip(ship: ShipClass): void {
     if (this.mode !== 'menu') return;
     const previous = this.menuHero;
-    const next = createShipModel(ship, { accent: 0x8be3ff, scale: SHIP_MODEL_SCALE[ship] * 1.25, tint: 0x8a97aa });
+    const next = createShipModel(ship, { accent: 0x8be3ff, scale: menuHeroScale(ship), tint: 0x8a97aa });
     next.position.copy(previous.position);
     next.rotation.copy(previous.rotation);
     this.menuRoot.remove(previous);
     disposeObject3D(previous);
     this.menuHero = next;
     this.menuRoot.add(next);
+    this.heroEnterAt = this.menuClock.elapsed;
+    this.placeMenuCradle(ship);
+  }
+
+  /** Sizes and seats the landing cradle so a bigger craft gets a bigger pad beneath it. */
+  private placeMenuCradle(ship: ShipClass): void {
+    const radius = menuHeroRadius(ship);
+    const scale = THREE.MathUtils.clamp(radius / 5.2, 0.9, 2.6);
+    this.menuCradle.scale.setScalar(scale);
+    this.menuCradle.position.set(this.menuHeroBase.x, this.menuHeroBase.y - radius * 0.46 - 1.2 - 0.5 * scale, this.menuHeroBase.z);
   }
 
   getShipUpgradeLevels(ship: ShipClass): UpgradeLevels {
@@ -1016,7 +1089,7 @@ export class SpaceGame {
 
   private encounterScaling = { count: 1, durability: 1, damage: 1 };
 
-  start(ship: ShipClass): void {
+  start(ship: ShipClass, chapter?: ChapterDef): void {
     this.ship = ship;
     this.encounterScaling = getUpgradeEncounterScaling(this.shipUpgrades[ship]);
     this.resetGameplayState();
@@ -1035,6 +1108,7 @@ export class SpaceGame {
     this.autoStatus = '';
     this.autoFire = false;
     this.autoBoost = false;
+    this.autoBrake = false;
     this.pilotRetreating = false;
     this.torpedoes = this.getCurrentShipStats().torpedoes;
     this.torpedoCooldown = 0;
@@ -1071,7 +1145,8 @@ export class SpaceGame {
     this.wheelRollInput = 0;
     this.resetMotionStars();
     this.randomState = (Date.now() ^ stats.mass ^ stats.speed) >>> 0;
-    this.scheduleWave(1);
+    if (chapter) this.beginCampaign(chapter);
+    else this.scheduleWave(1);
     this.syncCameraToPlayer(0, true);
     this.clock.start();
     void this.audio.resume();
@@ -1321,6 +1396,12 @@ export class SpaceGame {
       asteroids,
       projectiles,
       pickups,
+      objective: this.campaignRun
+        ? freeze({
+            points: freeze(this.objectiveMarkers.map((marker) => freeze({ x: marker.object.position.x, y: marker.object.position.y, z: marker.object.position.z, kind: marker.kind, focus: this.campaignRun!.snapshot().stage.focusIndex === marker.index, done: marker.done || !marker.object.visible }))),
+            asset: this.campaignAsset ? vectorToTelemetry(this.campaignAsset.object.position) : null,
+          })
+        : null,
       target: this.target ? freeze({ kind: this.target.kind, id: this.target.kind === 'enemy' ? this.target.id : 0 }) : null,
       boss: this.boss
         ? freeze({
@@ -1367,30 +1448,35 @@ export class SpaceGame {
     this.gameplayCarrier.position.copy(this.bossHomePosition);
     this.gameplayCarrier.rotation.copy(this.bossHomeRotation);
 
-    this.menuCarrier.position.set(-2, 13.5, -112);
-    this.menuCarrier.rotation.set(-0.08, 0.16, 0.02);
-    this.menuRoot.add(this.menuCarrier);
+    this.menuStation.position.set(30, 30, -170);
+    this.menuStation.rotation.set(0.16, -0.55, 0.03);
+    this.menuStation.scale.setScalar(1.0);
+    this.menuRoot.add(this.menuStation);
 
-    const escortData: Array<[ShipClass, [number, number, number], [number, number, number], number]> = [
-      ['destroyer', [-16, 15.8, -122], [-0.05, 0.18, 0.03], 1.05],
-      ['freighter', [11, 11.5, -102], [-0.08, -0.22, -0.03], 1.18],
-      ['shuttle', [18, 8.5, -88], [0.12, -0.35, 0.08], 1.05],
+    const escortData: Array<[ShipClass, number]> = [
+      ['destroyer', 0.9],
+      ['freighter', 0.95],
+      ['shuttle', 1.1],
+      ['fighter', 1.0],
     ];
-    for (const [shipClass, position, rotation, scale] of escortData) {
-      const escort = createShipModel(shipClass, { scale });
-      escort.position.set(position[0], position[1], position[2]);
-      escort.rotation.set(rotation[0], rotation[1], rotation[2]);
+    for (const [shipClass, factor] of escortData) {
+      const escort = createShipModel(shipClass, { scale: SHIP_MODEL_SCALE[shipClass] * factor });
+      const start = escortPosition(this.menuEscorts.length, 0);
+      escort.position.set(start.x, start.y, start.z);
       this.menuEscorts.push(escort);
       this.menuRoot.add(escort);
     }
 
-    this.menuHero.position.set(3.2, -3.4, -10.5);
+    this.menuHero.position.copy(this.menuHeroBase);
     this.menuHero.rotation.set(0.16, -0.62, -0.2);
     this.menuRoot.add(this.menuHero);
+    this.menuRoot.add(this.menuCradle);
+    this.placeMenuCradle(this.ship);
 
     const heroLight = new THREE.PointLight(0x8ab8ff, 5.5, 70, 2.4);
-    heroLight.position.set(5, -0.5, -2);
+    heroLight.position.set(5, 2.5, -2);
     this.menuRoot.add(heroLight);
+    this.menuHeroLight = heroLight;
 
     const ambient = new THREE.AmbientLight(0x4f617b, 1.2);
     const front = new THREE.DirectionalLight(0xe3eeff, 3.1);
@@ -1507,17 +1593,39 @@ export class SpaceGame {
 
   private updateMenuScene(dt: number): void {
     const elapsed = performance.now() * 0.001;
+    this.menuClock.elapsed = elapsed;
     this.planet.rotation.y += dt * 0.03;
     this.planet.rotation.x = Math.sin(elapsed * 0.08) * 0.06;
     this.planetPivot.rotation.z = Math.sin(elapsed * 0.05) * 0.05;
-    this.menuCarrier.position.y = 13.5 + Math.sin(elapsed * 0.35) * 0.6;
-    this.menuCarrier.rotation.z = Math.sin(elapsed * 0.22) * 0.03;
-    this.menuHero.position.y = -3.4 + Math.sin(elapsed * 1.1) * 0.4;
-    this.menuHero.rotation.y = -0.62 + Math.sin(elapsed * 0.55) * 0.08;
+    this.menuStation.userData.update?.(elapsed, dt);
+    this.menuCradle.userData.update?.(elapsed, dt);
+    this.menuStation.rotation.y = -0.55 + Math.sin(elapsed * 0.04) * 0.05;
+
+    const pose = heroPose(elapsed);
+    const enter = enterState(elapsed - this.heroEnterAt);
+    this.menuHero.position.set(
+      this.menuHeroBase.x + pose.offset.x + enter.offset.x,
+      this.menuHeroBase.y + pose.offset.y + enter.offset.y,
+      this.menuHeroBase.z + pose.offset.z + enter.offset.z,
+    );
+    this.menuHero.rotation.set(0.16 + pose.pitch, -0.62 + pose.yaw + enter.yaw, -0.2 + pose.roll + enter.roll);
+    if (this.menuHeroLight) {
+      this.menuHeroLight.intensity = 5.5 + Math.sin(elapsed * 3.1) * 0.5 + enter.flash * 22;
+      this.menuHeroLight.position.set(this.menuHero.position.x + 2, this.menuHero.position.y + 3.5, this.menuHero.position.z + 6);
+    }
+
     this.menuEscorts.forEach((escort, index) => {
-      escort.position.y += Math.sin(elapsed * (0.42 + index * 0.16)) * 0.004;
-      escort.rotation.z = Math.sin(elapsed * (0.26 + index * 0.08)) * 0.04;
+      const now = escortPosition(index, elapsed);
+      const next = escortPosition(index, elapsed + 0.25);
+      escort.position.set(now.x, now.y, now.z);
+      const heading = this.lookQuaternion(escort.position, new THREE.Vector3(next.x, next.y, next.z));
+      escort.quaternion.slerp(heading, clamp(dt * 3, 0, 1));
     });
+
+    const sway = cameraSway(elapsed);
+    this.camera.position.set(0 + sway.x, 6 + sway.y, 28 + sway.z);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(this.cameraLookTarget);
     this.updateMotionStars(dt, 9);
     this.updateBackdropAnchors();
     this.updateReticle();
@@ -1569,6 +1677,7 @@ export class SpaceGame {
     }
     this.updateAutopilot(dt);
     this.updatePlayerMovement(dt, movementStats);
+    this.updateCampaign(dt);
     this.updateTorpedoes(dt);
     this.overchargeTimer = Math.max(0, this.overchargeTimer - dt);
     this.aegisPoints = Math.max(0, this.aegisPoints - AEGIS.decayPerSecond * dt);
@@ -1612,11 +1721,318 @@ export class SpaceGame {
     this.updateReticle();
     this.audio.setEngine(true, Math.max(0.2, this.playerVelocity.length() / Math.max(1, stats.speed)), this.isBoosting() && this.energy > 0.1);
     this.message = this.buildPlayingMessage();
-    this.advanceWaves(dt);
+    if (!this.campaignRun) this.advanceWaves(dt);
   }
 
   private isBoosting(): boolean {
-    return this.boostHeld || this.autoBoost;
+    return !this.isBraking() && (this.boostHeld || this.autoBoost);
+  }
+
+  // Scan and stealth stages need a crawl: autopilot throttles back near a beacon or inside the sensor net.
+  private wantsAutoBrake(): boolean {
+    const kind = this.campaignRun?.currentTracker.kind;
+    if (kind === 'stealth') {
+      const player = this.playerRoot.position;
+      return this.objectiveMarkers.some((marker) => marker.kind === 'sensor' && !marker.done && marker.object.position.distanceTo(player) < marker.radius + 140);
+    }
+    if (kind !== 'scan') return false;
+    const focus = this.getObjectiveFocus();
+    return !!focus && focus.position.distanceTo(this.playerRoot.position) < focus.radius * 2.5 + 160;
+  }
+
+  private isBraking(): boolean {
+    return this.brakeHeld || this.autoBrake;
+  }
+
+  // ---------------------------------------------------------------- campaign runtime
+
+  private chapterStageRoster(stageRoster: ShipClass[]): ShipClass[] {
+    const scaled = [...stageRoster];
+    const extra = Math.floor(stageRoster.filter(isCombatShip).length * (this.encounterScaling.count - 1) + 1e-6);
+    for (let index = 0; index < extra; index += 1) scaled.push(index % 2 === 0 ? 'interceptor' : 'fighter');
+    return scaled;
+  }
+
+  private queueRoster(roster: ShipClass[], gap: number, leadIn: number): void {
+    this.spawnClock = 0;
+    let combatIndex = 0;
+    let bonusIndex = 0;
+    for (const shipClass of roster) {
+      const bonus = !isCombatShip(shipClass);
+      const delay = bonus ? leadIn + 1.4 + bonusIndex * 1.1 : leadIn + combatIndex * gap + this.randomRange(0, 0.4);
+      this.spawnQueue.push({ type: 'enemy', delay, shipClass });
+      if (bonus) bonusIndex += 1;
+      else combatIndex += 1;
+    }
+    this.spawnQueue.sort((a, b) => a.delay - b.delay);
+  }
+
+  private beginCampaign(chapter: ChapterDef): void {
+    this.campaignChapter = chapter;
+    this.campaignOutcome = null;
+    this.campaignFailReason = undefined;
+    const env = chapter.environment;
+    this.wave = clamp(Math.round(1 + ((chapter.difficulty - 1) * 4) / 6), 1, 5);
+    this.encounterScaling = {
+      count: this.encounterScaling.count * env.hostileScale.count,
+      durability: this.encounterScaling.durability * env.hostileScale.durability,
+      damage: this.encounterScaling.damage * env.hostileScale.damage,
+    };
+    this.targetAsteroidCount = env.asteroids;
+    this.environmentSpeed = env.environmentSpeed;
+    this.waveAnchor.copy(this.playerRoot.position);
+    this.waveSpawnOrientation.copy(this.playerRoot.quaternion);
+    const forward = getBasisVectors(this.playerRoot.quaternion).forward;
+    this.campaignRun = createChapterRun(chapter, {
+      anchor: { x: this.playerRoot.position.x, y: this.playerRoot.position.y, z: this.playerRoot.position.z },
+      forward: { x: forward.x, y: forward.y, z: forward.z },
+      seed: 1000 + chapter.number * 77,
+      // Keep every objective comfortably inside the soft boundary so the world edge never fights the mission.
+      bounds: { center: { x: this.playerRoot.position.x, y: this.playerRoot.position.y, z: this.playerRoot.position.z }, radius: WORLD_SOFT_RADIUS * 0.78 },
+    });
+    this.campaignStageIndex = -1;
+    this.message = `Chapter ${chapter.number}: ${chapter.title}`;
+    this.enterCampaignStage();
+  }
+
+  private clearObjectiveMarkers(): void {
+    this.objectiveMarkers.forEach((marker) => disposeObject3D(marker.object));
+    this.objectiveMarkers = [];
+    if (this.campaignAsset) {
+      disposeObject3D(this.campaignAsset.object);
+      this.campaignAsset = null;
+    }
+  }
+
+  private markerGlow(color: number, size: number): THREE.Sprite {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.getBlastTextures().fire, color, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+    sprite.scale.setScalar(size);
+    return sprite;
+  }
+
+  private createObjectiveMarker(kind: ObjectiveMarker['kind'], position: Vec3, radius: number, facing?: THREE.Vector3): ObjectiveMarker {
+    const palette: Record<ObjectiveMarker['kind'], number> = { beacon: 0x62d9ff, sensor: 0xff5d5d, post: 0xffb866, artefact: 0xffd35a, gate: 0x62f08a, extraction: 0x62f08a };
+    const color = palette[kind];
+    const object = new THREE.Group();
+    const additive = (opacity: number) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+    if (kind === 'artefact') {
+      const core = new THREE.Mesh(new THREE.OctahedronGeometry(2.4, 0), new THREE.MeshStandardMaterial({ color: 0xfff1c1, emissive: color, emissiveIntensity: 1.8, roughness: 0.2, metalness: 0.4 }));
+      object.add(core, this.markerGlow(color, 16));
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(4.2, 0.12, 8, 40), additive(0.7));
+      halo.rotation.x = Math.PI / 2;
+      object.add(halo);
+    } else if (kind === 'gate' || kind === 'extraction') {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, Math.max(0.5, radius * 0.035), 10, 72), additive(0.9));
+      const inner = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.72, Math.max(0.25, radius * 0.012), 8, 64), additive(0.35));
+      object.add(ring, inner, this.markerGlow(color, radius * 0.6));
+      if (facing) object.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), facing.clone().normalize());
+    } else {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(Math.min(radius, 40), 0.5, 8, 64), additive(0.8));
+      ring.rotation.x = Math.PI / 2;
+      const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.2, 22, 8), new THREE.MeshStandardMaterial({ color: 0x4c586c, emissive: color, emissiveIntensity: 0.9, metalness: 0.8, roughness: 0.4 }));
+      const head = new THREE.Mesh(new THREE.OctahedronGeometry(2.6, 0), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: color, emissiveIntensity: 2 }));
+      head.position.y = 12;
+      object.add(ring, mast, head, this.markerGlow(color, 22));
+      if (kind === 'sensor') {
+        const range = new THREE.Mesh(new THREE.SphereGeometry(radius, 28, 18), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.045, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.BackSide }));
+        object.add(range);
+      }
+    }
+    object.position.set(position.x, position.y, position.z);
+    this.objectiveLayer.add(object);
+    return { object, kind, index: 0, radius, done: false, spin: this.randomRange(0.4, 0.9) };
+  }
+
+  private enterCampaignStage(): void {
+    const run = this.campaignRun;
+    const chapter = this.campaignChapter;
+    if (!run || !chapter) return;
+    this.clearObjectiveMarkers();
+    this.campaignStageIndex = run.stageIndex;
+    const stage = chapter.stages[run.stageIndex];
+    const tracker = run.currentTracker;
+    const points = tracker.points;
+    this.spawnQueue = [];
+    this.artefactTaken = [];
+    const makeAll = (kind: ObjectiveMarker['kind'], radius: number, from = 0, to = points.length) => {
+      for (let index = from; index < to; index += 1) {
+        const facing = points[index + 1] ? new THREE.Vector3(points[index + 1].x - points[index].x, points[index + 1].y - points[index].y, points[index + 1].z - points[index].z) : undefined;
+        const marker = this.createObjectiveMarker(kind, points[index], radius, facing);
+        marker.index = index;
+        this.objectiveMarkers.push(marker);
+      }
+    };
+    switch (stage.kind) {
+      case 'eliminate':
+        this.queueRoster(this.chapterStageRoster(stage.roster.concat(stage.bonusRoster ?? [])), 3.6, 3.5);
+        break;
+      case 'scan':
+        makeAll('beacon', stage.scanRadius);
+        break;
+      case 'stealth':
+        makeAll('sensor', stage.sensorRange, 0, points.length - 1);
+        makeAll('post', stage.targetRadius, points.length - 1, points.length);
+        break;
+      case 'retrieve':
+        makeAll('artefact', stage.pickupRadius, 0, points.length - 1);
+        makeAll('extraction', stage.gateRadius, points.length - 1, points.length);
+        break;
+      case 'navigate':
+        makeAll('gate', stage.gateRadius);
+        break;
+      case 'hunt': {
+        this.queueRoster(this.chapterStageRoster(stage.escort), 5, 6);
+        stage.aces.forEach((ace, index) => {
+          const forward = getBasisVectors(this.waveSpawnOrientation).forward;
+          const right = getBasisVectors(this.waveSpawnOrientation).right;
+          const position = this.playerRoot.position.clone().addScaledVector(forward, 340 + index * 60).addScaledVector(right, (index - 1) * 120);
+          this.spawnEnemy(ace.shipClass, { position, tag: ace.id, durability: ace.durabilityMultiplier, damage: ace.damageMultiplier, ace: true, callsign: ace.callsign });
+        });
+        break;
+      }
+      case 'defend': {
+        const forward = getBasisVectors(this.waveSpawnOrientation).forward;
+        const object = createShipModel('freighter', { accent: 0x62d9ff, tint: 0x8fa3bd, scale: SHIP_MODEL_SCALE.freighter * 1.25 });
+        object.position.copy(this.playerRoot.position).addScaledVector(forward, 150);
+        const glow = this.markerGlow(0x62d9ff, 46);
+        object.add(glow);
+        this.objectiveLayer.add(object);
+        this.campaignAsset = { object, dir: forward.clone(), speed: stage.assetSpeed, radius: SHIP_TARGET_RADIUS.freighter * 1.25, name: stage.assetName };
+        break;
+      }
+      case 'boss':
+        this.scheduleWave(5);
+        break;
+    }
+    if (stage.kind !== 'boss') this.spawnWaveSupplies(this.wave);
+    this.flashAssistMessage(`${stage.label.toUpperCase()}`);
+  }
+
+  private spawnRaid(roster: ShipClass[], atAsset = false): void {
+    const basis = getBasisVectors(this.waveSpawnOrientation);
+    const center = atAsset && this.campaignAsset ? this.campaignAsset.object.position : this.playerRoot.position;
+    roster.forEach((shipClass, index) => {
+      const angle = this.randomRange(0, Math.PI * 2);
+      const position = center.clone().addScaledVector(basis.forward, this.randomRange(170, 260)).addScaledVector(basis.right, Math.cos(angle) * 120 + (index - roster.length / 2) * 22).addScaledVector(basis.up, Math.sin(angle) * 50);
+      this.spawnEnemy(shipClass, { position, hunter: atAsset });
+    });
+    this.flashAssistMessage(atAsset ? 'RAIDERS INBOUND — PROTECT THE ASSET' : 'HOSTILES INBOUND');
+  }
+
+  private getObjectiveFocus(): { position: THREE.Vector3; name: string; radius: number } | null {
+    const run = this.campaignRun;
+    if (!run || this.mode !== 'playing') return null;
+    const snapshot = run.snapshot();
+    const points = run.currentTracker.points;
+    if (snapshot.stage.kind === 'defend' && this.campaignAsset) return { position: this.campaignAsset.object.position, name: this.campaignAsset.name.toUpperCase(), radius: this.campaignAsset.radius };
+    const index = snapshot.stage.focusIndex;
+    if (index === null || index === undefined || !points[index]) return null;
+    const kindName: Record<string, string> = { scan: 'ANOMALY BEACON', stealth: 'LISTENING POST', retrieve: index === points.length - 1 ? 'EXTRACTION GATE' : 'ARTEFACT', navigate: `GATE ${index + 1}` };
+    const marker = this.objectiveMarkers.find((candidate) => candidate.index === index);
+    return { position: new THREE.Vector3(points[index].x, points[index].y, points[index].z), name: kindName[snapshot.stage.kind] ?? 'OBJECTIVE', radius: marker?.radius ?? 30 };
+  }
+
+  private updateCampaign(dt: number): void {
+    const run = this.campaignRun;
+    if (!run || this.mode !== 'playing') return;
+    const position = this.playerRoot.position;
+    this.campaignElapsed += dt;
+    run.apply({
+      type: 'tick',
+      dt,
+      playerPos: { x: position.x, y: position.y, z: position.z },
+      playerSpeed: this.playerVelocity.length(),
+      boosting: this.isBoosting() && this.energy > 0.1,
+      firing: this.fireHeld || this.autoFire,
+    });
+    if (this.campaignAsset) {
+      const asset = this.campaignAsset;
+      asset.object.position.addScaledVector(asset.dir, asset.speed * dt);
+      asset.object.quaternion.copy(this.lookQuaternion(asset.object.position, asset.object.position.clone().add(asset.dir)));
+      run.apply({ type: 'assetPosition', pos: { x: asset.object.position.x, y: asset.object.position.y, z: asset.object.position.z } });
+    }
+    // Artefact pickups
+    const tracker = run.currentTracker;
+    if (tracker.kind === 'retrieve') {
+      for (const marker of this.objectiveMarkers) {
+        if (marker.kind !== 'artefact' || marker.done) continue;
+        if (marker.object.position.distanceTo(position) < marker.radius + this.playerRadius) {
+          marker.done = true;
+          marker.object.visible = false;
+          this.artefactTaken[marker.index] = true;
+          run.apply({ type: 'pickup', index: marker.index });
+          this.spawnSpark(marker.object.position, 0xffd35a, 2.4);
+          this.audio.playImpact(true, 30);
+          this.flashAssistMessage('ARTEFACT SECURED');
+        }
+      }
+    }
+    for (const raid of run.consumeRaids()) {
+      this.spawnRaid(raid.roster, tracker.kind === 'defend');
+      if (tracker.kind === 'stealth') this.flashAssistMessage('ALARM TRIPPED — PATROLS CONVERGING');
+    }
+    // Asset attrition: raiders loitering near the asset chip at it even when their shots miss.
+    if (this.campaignAsset) {
+      for (const enemy of this.enemies) {
+        if (enemy.assetHunter && enemy.object.position.distanceTo(this.campaignAsset.object.position) < 60) {
+          run.apply({ type: 'assetDamaged', amount: (enemy.shipClass === 'bomber' ? 9 : 4) * dt * this.encounterScaling.damage });
+        }
+      }
+    }
+    // Marker visuals: spin, highlight the current focus, dim finished ones
+    const snapshot = run.snapshot();
+    const focus = snapshot.stage.focusIndex;
+    for (const marker of this.objectiveMarkers) {
+      marker.object.rotation.y += dt * marker.spin * (marker.kind === 'gate' || marker.kind === 'extraction' ? 0 : 1);
+      const isFocus = focus === marker.index;
+      const finished = marker.kind !== 'sensor' && focus !== null && (snapshot.stage.kind === 'scan' || snapshot.stage.kind === 'navigate') && marker.index < focus;
+      marker.object.visible = !marker.done && !finished;
+      const pulse = isFocus || marker.kind === 'sensor' ? 1 + Math.sin(this.campaignElapsed * 3.2 + marker.index) * 0.06 : 0.82;
+      marker.object.scale.setScalar(pulse);
+    }
+    if (snapshot.stage.status === 'failed' || snapshot.status === 'failed') {
+      this.finishCampaign(false, snapshot.stage.failReason ?? 'OBJECTIVE FAILED');
+    } else if (snapshot.status === 'complete') {
+      this.finishCampaign(true);
+    } else if (run.stageIndex !== this.campaignStageIndex) {
+      this.enterCampaignStage();
+    }
+  }
+
+  private finishCampaign(success: boolean, reason?: string): void {
+    if (!this.campaignRun || !this.campaignChapter || this.mode !== 'playing') return;
+    this.campaignOutcome = success ? 'complete' : 'failed';
+    this.campaignFailReason = reason;
+    this.endGame(success ? 'victory' : 'defeat', success ? this.campaignChapter.debrief : `Mission failed — ${reason ?? 'objective lost'}`, 'weapon', !success);
+  }
+
+  /** Permanent upgrade granted by a first-time chapter clear. */
+  grantUpgrade(track: 'hull' | 'defense' | 'attack'): void {
+    const levels = this.shipUpgrades[this.ship];
+    levels[track] = Math.min(UPGRADE_MAX_LEVEL, levels[track] + 1);
+    saveStoredShipUpgrades(this.shipUpgrades);
+    this.emitSnapshot(true);
+  }
+
+  private buildCampaignSnapshot(): GameSnapshot['campaign'] {
+    const run = this.campaignRun;
+    const chapter = this.campaignChapter;
+    if (!run || !chapter) return null;
+    const snapshot = run.snapshot();
+    return {
+      number: chapter.number,
+      id: chapter.id,
+      title: chapter.title,
+      stageIndex: snapshot.stageIndex,
+      stageCount: snapshot.stageCount,
+      hud: describeObjectiveHud(snapshot),
+      hint: snapshot.stage.hint,
+      detection: snapshot.stage.detection,
+      timeRemainingSec: snapshot.stage.timeRemainingSec,
+      assetHull: snapshot.stage.assetHull,
+      outcome: this.campaignOutcome,
+      failReason: this.campaignFailReason,
+    };
   }
 
   // ---------------------------------------------------------------- proton torpedoes
@@ -1903,7 +2319,15 @@ export class SpaceGame {
 
   /** Per-frame HUD guidance for the locked target: screen marker, off-screen arrow, lead pip and turn instructions. */
   getTargetGuidance(): TargetGuidance | null {
-    const resolved = this.resolveTarget();
+    let resolved = this.resolveTarget();
+    let objectiveGuidance = false;
+    if (!resolved) {
+      const focus = this.getObjectiveFocus();
+      if (focus) {
+        objectiveGuidance = true;
+        resolved = { ref: { kind: 'enemy', id: -1 }, heavy: false, position: focus.position, velocity: new THREE.Vector3(), radius: focus.radius, name: focus.name, detail: this.campaignRun?.snapshot().stage.progressText ?? '', hostile: false, hullPct: 0, shieldPct: 0 };
+      }
+    }
     if (!resolved || this.mode !== 'playing') return null;
     const player = this.playerRoot.position;
     const rect = this.canvas.getBoundingClientRect();
@@ -1935,7 +2359,7 @@ export class SpaceGame {
     const local = direction.clone().applyQuaternion(this.playerRoot.quaternion.clone().invert());
     const bearing = bearingDegrees(local);
     return {
-      kind: resolved.ref.kind,
+      kind: objectiveGuidance ? 'objective' : resolved.ref.kind,
       name: resolved.name,
       detail: resolved.detail,
       hostile: resolved.hostile,
@@ -1966,6 +2390,7 @@ export class SpaceGame {
     this.autoInput.roll = 0;
     this.autoFire = false;
     this.autoBoost = false;
+    this.autoBrake = false;
     this.pilotRetreating = false;
     this.pilotBreakTimer = 0;
     this.pilotTargetId = null;
@@ -2063,6 +2488,11 @@ export class SpaceGame {
       return best;
     };
     const bossAlive = this.boss && !this.boss.defeated;
+    if (!combat && !bossAlive) {
+      // Plain autopilot flies the mission: the objective beats chasing hostiles it will not shoot.
+      const mission = this.getObjectiveFocus();
+      if (mission) return { kind: 'anchor', position: mission.position, velocity: new THREE.Vector3(), radius: mission.radius, label: mission.name, hostile: false, heavy: false, standoff: 0 };
+    }
     // Keep a chosen hostile for a moment instead of flipping between equidistant ships.
     if (this.pilotTargetId !== null && this.pilotTargetHold > 0) {
       const held = this.enemies.find((enemy) => enemy.id === this.pilotTargetId);
@@ -2077,6 +2507,10 @@ export class SpaceGame {
     if (bossAlive) {
       const resolved = this.resolveTarget({ kind: 'boss' });
       if (resolved) return toObjective(resolved, 'boss');
+    }
+    const focus = this.getObjectiveFocus();
+    if (focus) {
+      return { kind: 'anchor', position: focus.position, velocity: new THREE.Vector3(), radius: focus.radius, label: focus.name, hostile: false, heavy: false, standoff: 0 };
     }
     const supply = this.chooseSupplyObjective();
     if (combat) {
@@ -2114,6 +2548,7 @@ export class SpaceGame {
     if (this.autoMode === 'off') {
       this.autoFire = false;
       this.autoBoost = false;
+      this.autoBrake = false;
       return;
     }
     const combat = this.autoMode === 'combat';
@@ -2207,8 +2642,10 @@ export class SpaceGame {
       this.autoInput.roll = rollLevelInput(basis.right);
     }
 
+    if (this.campaignRun?.currentTracker.kind === 'stealth') boostWanted = false;
     if (boostWanted && this.energy > 55) this.autoBoost = true;
     if (!boostWanted || this.energy < 14) this.autoBoost = false;
+    this.autoBrake = this.wantsAutoBrake();
     this.autoFire = fire;
     this.autoStatus = status;
     if (combat && objective && objective.hostile && this.torpedoes > 0 && this.torpedoCooldown <= 0 && (objective.heavy || objective.kind === 'target' || objective.kind === 'boss')) {
@@ -2246,7 +2683,7 @@ export class SpaceGame {
   }
 
   private moveAfterSteering(dt: number, profile: FlightProfile, stats: ShipDefinition): void {
-    this.currentSpeed = getForwardSpeed(stats.speed, this.isBoosting(), this.energy);
+    this.currentSpeed = this.isBraking() ? Math.round(stats.speed * BRAKE_SPEED_FACTOR * 10) / 10 : getForwardSpeed(stats.speed, this.isBoosting(), this.energy);
     const motion = integrateFlightMotion(
       this.playerRoot.position,
       this.playerVelocity,
@@ -2294,17 +2731,17 @@ export class SpaceGame {
     }
   }
 
-  private spawnEnemy(shipClass: ShipClass): void {
+  private spawnEnemy(shipClass: ShipClass, opts: { position?: THREE.Vector3; tag?: string; durability?: number; damage?: number; hunter?: boolean; ace?: boolean; callsign?: string } = {}): EnemyEntity {
     const baseStats = SHIPS[shipClass];
     const stats = isCombatShip(shipClass) ? { ...baseStats, hull: Math.round(baseStats.hull * this.encounterScaling.durability), shield: Math.round(baseStats.shield * this.encounterScaling.durability), damage: baseStats.damage * this.encounterScaling.damage } : baseStats;
     const profile = FLIGHT_PROFILES[shipClass];
     const pursuit = getDifficultyAdjustedEnemyPursuitProfile(shipClass, this.difficulty);
     const difficultyTuning = getDifficultyTuning(this.difficulty);
-    const object = createShipModel(shipClass, { accent: 0xff708c, tint: 0x71788a, scale: SHIP_MODEL_SCALE[shipClass] });
+    const object = createShipModel(shipClass, { accent: opts.ace ? 0xffd35a : 0xff708c, tint: opts.ace ? 0x9a8a5a : 0x71788a, scale: SHIP_MODEL_SCALE[shipClass] * (opts.ace ? 1.2 : 1) });
     const bounds = new THREE.Box3().setFromObject(object);
     const collisionRadius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
     const shieldShell = createShieldShell(collisionRadius, 0x7fe4ff);
-    const spawnPosition = this.getSpawnPointAroundAnchor(this.waveAnchor, this.waveSpawnOrientation, this.randomRange(135, 220));
+    const spawnPosition = opts.position?.clone() ?? this.getSpawnPointAroundAnchor(this.waveAnchor, this.waveSpawnOrientation, this.randomRange(135, 220));
     shieldShell.visible = this.collisionBoundsVisible;
     if (shieldShell.material instanceof THREE.MeshBasicMaterial) {
       shieldShell.material.color.setHex(0x7fe4ff);
@@ -2319,7 +2756,7 @@ export class SpaceGame {
     const forward = getBasisVectors(object.quaternion).forward;
     const cruiseSpeed = stats.speed * difficultyTuning.enemySpeedMultiplier * pursuit.patrolSpeedMultiplier + this.wave * 0.45;
     const patrolOrigin = spawnPosition.clone();
-    this.enemies.push({
+    const entity: EnemyEntity = {
       id: ++this.enemyId,
       object,
       shieldShell,
@@ -2344,7 +2781,17 @@ export class SpaceGame {
       despawnTimer: 0,
       spawnAge: 0,
       mode: pursuit.combat ? 'attack' : 'flee',
-    });
+    };
+    if (opts.durability || opts.damage) {
+      entity.stats = { ...stats, hull: Math.round(stats.hull * (opts.durability ?? 1)), shield: Math.round(stats.shield * (opts.durability ?? 1)), damage: stats.damage * (opts.damage ?? 1) };
+      entity.hull = entity.stats.hull;
+      entity.shield = entity.stats.shield;
+    }
+    if (opts.tag) entity.tag = opts.tag;
+    if (opts.hunter) entity.assetHunter = true;
+    this.enemies.push(entity);
+    if (opts.ace) this.flashAssistMessage(`ACE ${opts.callsign?.toUpperCase() ?? ''} ENGAGES`);
+    return entity;
   }
 
   private spawnAsteroid(radius: number, speed: number): void {
@@ -2394,11 +2841,17 @@ export class SpaceGame {
   }
 
   private updateEnemies(dt: number): void {
-    const playerBasis = getBasisVectors(this.playerRoot.quaternion);
-    const playerPosition = this.playerRoot.position;
+    const basePlayerBasis = getBasisVectors(this.playerRoot.quaternion);
+    const basePlayerPosition = this.playerRoot.position;
+    const assetBasis = this.campaignAsset ? getBasisVectors(this.campaignAsset.object.quaternion) : basePlayerBasis;
     const difficultyTuning = getDifficultyTuning(this.difficulty);
 
     for (const enemy of [...this.enemies]) {
+      // Asset hunters go after the defended asset unless the player is right on top of them.
+      const huntAsset = !!enemy.assetHunter && !!this.campaignAsset && enemy.object.position.distanceTo(basePlayerPosition) > 95;
+      const playerPosition = huntAsset ? this.campaignAsset!.object.position : basePlayerPosition;
+      const playerBasis = huntAsset ? assetBasis : basePlayerBasis;
+      const focusVelocity = huntAsset ? this.campaignAsset!.dir.clone().multiplyScalar(this.campaignAsset!.speed) : this.playerVelocity;
       const pursuit = enemy.pursuit;
       enemy.spawnAge += dt;
       enemy.fireCooldown = Math.max(0, enemy.fireCooldown - dt);
@@ -2414,7 +2867,7 @@ export class SpaceGame {
       const basis = getBasisVectors(enemy.object.quaternion);
       const forward = basis.forward;
       const alignment = forward.dot(toPlayer.clone().normalize());
-      const intercept = solveInterceptCourse(enemy.object.position, playerPosition, this.playerVelocity, enemy.profile.projectileSpeed);
+      const intercept = solveInterceptCourse(enemy.object.position, playerPosition, focusVelocity, enemy.profile.projectileSpeed);
 
       if (enemy.behaviorTimer <= 0) {
         enemy.behaviorTimer = this.randomRange(1.1, 2.7);
@@ -3247,6 +3700,11 @@ export class SpaceGame {
       this.spawnBlast(this.gameplayCarrier.position.clone().add(offset), { radius: this.randomRange(9, 17), power: 3, cause: 'collision' });
     }
     if (this.bossVictoryTimer > 3.2) {
+      if (this.campaignRun) {
+        this.campaignRun.apply({ type: 'bossDefeated' });
+        this.finishCampaign(true);
+        return;
+      }
       this.endGame('victory', 'The Leviathan is broken. The blockade is lifted.');
     }
   }
@@ -3432,6 +3890,17 @@ export class SpaceGame {
       }
     }
 
+    if (this.campaignAsset && this.campaignRun) {
+      for (const laser of [...this.lasers]) {
+        if (laser.kind !== 'enemy') continue;
+        if (segmentSphereIntersection(laser.previousPosition, laser.object.position, this.campaignAsset.object.position, this.campaignAsset.radius + laser.radius) !== null) {
+          this.removeLaser(laser);
+          this.campaignRun.apply({ type: 'assetDamaged', amount: laser.damage * 1.4 });
+          this.spawnSpark(laser.object.position, 0xff9a5a, 1.4);
+        }
+      }
+    }
+
     if (!this.collisionsEnabled) {
       return;
     }
@@ -3597,6 +4066,7 @@ export class SpaceGame {
 
   private destroyEnemy(enemy: EnemyEntity, byPlayer: boolean): void {
     if (!this.enemies.includes(enemy)) return;
+    this.campaignRun?.apply({ type: 'kill', shipClass: enemy.shipClass, tag: enemy.tag, byPlayer });
     const power: Record<ShipClass, number> = { fighter: 1.2, interceptor: 1, bomber: 1.5, shuttle: 1.3, freighter: 1.9, destroyer: 2.6 };
     this.spawnBlast(enemy.object.position, {
       radius: enemy.radius * 1.15,
@@ -4063,6 +4533,8 @@ export class SpaceGame {
     if (this.currentBoundaryLoad > 0.72) {
       return 'Boundary advisory — you can recover out wide, but arc back before the edge closes in.';
     }
+    // The objective card already carries progress and hint text; the centre line stays quiet outside of the boss fight.
+    if (this.campaignRun && this.mode === 'playing' && !this.boss) return '';
     if (this.boss && !this.boss.defeated) {
       const remaining = this.boss.subsystems.filter((sub) => !sub.destroyed).length;
       const shieldPct = Math.round((this.boss.shield / this.boss.maxShield) * 100);
@@ -4139,8 +4611,10 @@ export class SpaceGame {
       pickupMessage: this.pickupMessage,
       recovery: this.recoveryActive,
       captureActive: this.isMouseCaptureActive(),
+      braking: this.isBraking(),
       difficulty: this.difficulty,
       summary: this.buildSummary(),
+      campaign: this.buildCampaignSnapshot(),
       autoMode: this.autoMode,
       autoStatus: this.autoStatus,
       torpedoes: this.torpedoes,
@@ -4192,7 +4666,7 @@ export class SpaceGame {
     this.syncCollisionBoundsVisibility();
   }
 
-  private endGame(result: GameSnapshot['result'], message: string, cause: BlastCause = 'weapon'): void {
+  private endGame(result: GameSnapshot['result'], message: string, cause: BlastCause = 'weapon', silent = false): void {
     if (this.mode !== 'playing') {
       return;
     }
@@ -4206,9 +4680,10 @@ export class SpaceGame {
     this.autoMode = 'off';
     this.autoFire = false;
     this.autoBoost = false;
+    this.autoBrake = false;
     this.autoStatus = '';
     this.target = null;
-    if (result === 'defeat') {
+    if (result === 'defeat' && !silent) {
       this.spawnBlast(this.playerRoot.position, {
         radius: this.playerRadius * 1.5,
         power: cause === 'collision' ? 3.2 : 2.4,
@@ -4223,6 +4698,12 @@ export class SpaceGame {
   }
 
   private resetGameplayState(): void {
+    this.campaignRun = null;
+    this.campaignChapter = null;
+    this.campaignOutcome = null;
+    this.campaignFailReason = undefined;
+    this.campaignElapsed = 0;
+    this.clearObjectiveMarkers();
     this.torpedoList.forEach((torpedo) => disposeObject3D(torpedo.object));
     this.torpedoList = [];
     this.overchargeTimer = 0;
@@ -4358,6 +4839,7 @@ export class SpaceGame {
   private releaseContinuousInput(): void {
     this.fireHeld = false;
     this.boostHeld = false;
+    this.brakeHeld = false;
     this.heldKeys.clear();
     this.yawAxis = 0;
     this.pitchAxis = 0;

@@ -219,6 +219,7 @@ export const PLAYER_SHIELD_REGEN_RATE = 18;
 export const PLAYER_ENERGY_REGEN_RATE = 30;
 export const BOOST_DRAIN_PER_SECOND = 26;
 export const BOOST_MULTIPLIER = 1.42;
+export const BRAKE_SPEED_FACTOR = 0.25;
 export const PICKUP_WORLD_CAP = 14;
 export const PICKUP_LIFETIME_SECONDS = 28;
 
