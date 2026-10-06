@@ -622,3 +622,14 @@ body[data-mode="menu"] .topbar{background:linear-gradient(180deg,rgb(3 8 14 / ca
 #results.victory .result-stats{margin:6px 0 10px}
 #results .modal{max-height:97svh;overflow:auto}
 @media(max-height:860px){#results.victory .result-crest{display:none}}
+
+/* ===== Narration subtitles ===== */
+.subtitle{position:fixed;left:0;right:0;margin:0 auto;bottom:38px;width:clamp(280px,calc(100vw - 740px),680px);padding:10px 18px 12px;background:linear-gradient(135deg,rgb(8 18 28 / calc(var(--pa) + .15)),rgb(4 10 17 / calc(var(--pa) + .1)));border:1px solid var(--hair);border-left:3px solid var(--cyan);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:12;pointer-events:none;border-radius:var(--r);animation:subin .25s both}
+@keyframes subin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.subtitle span{display:block;font:600 9px var(--mono);letter-spacing:.26em;color:var(--cyan);margin-bottom:4px}
+.subtitle p{margin:0;font:500 clamp(12px,1.8svh,15px)/1.45 var(--ui);color:#eef5f8}
+.subtitle[data-role="wingman"]{border-left-color:var(--amber)}.subtitle[data-role="wingman"] span{color:var(--amber)}
+.subtitle[data-role="computer"]{border-left-color:#a78bff}.subtitle[data-role="computer"] span{color:#c9b8ff}
+body[data-mode="menu"] .subtitle{bottom:auto;top:84px;width:min(560px,46vw)}
+body[data-mode="ended"] .subtitle{bottom:18px;width:min(680px,calc(100vw - 32px));z-index:40}
+@media(max-width:1000px){.subtitle{width:calc(100vw - 24px);bottom:auto;top:128px}body[data-mode="menu"] .subtitle{top:70px;width:calc(100vw - 24px)}}

@@ -40,6 +40,10 @@ export class GameAudio {
     }
   }
 
+  getContext(): AudioContext | undefined {
+    return this.context;
+  }
+
   async resume(): Promise<void> {
     if (!this.context || this.context.state !== 'suspended') {
       return;

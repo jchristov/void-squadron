@@ -113,6 +113,9 @@ import {
 import { computeAccuracy, type MissionSummary } from './summary.ts';
 import { createDockCradle, createSpaceStation, type AnimatedGroup } from './station.ts';
 import { rollDrops } from './drops.ts';
+import { MusicDirector, type MusicMode } from './music';
+import { Narrator } from './narration';
+import type { VoiceRole } from './voiceLines';
 import { createChapterRun, describeObjectiveHud, type ChapterDef, type ChapterRun, type Vec3 } from './campaign.ts';
 import { cameraSway, enterState, escortPosition, heroPose } from './menuMotion.ts';
 import { formatSpaceDistance } from './units.ts';
@@ -694,6 +697,12 @@ export class SpaceGame {
   private readonly camera = new THREE.PerspectiveCamera(58, 1, 0.1, 2200);
   private readonly clock = new THREE.Clock();
   private readonly audio = new GameAudio();
+  private music: MusicDirector | null = null;
+  private narrator: Narrator | null = null;
+  private subtitleHandler: ((line: { role: VoiceRole; text: string } | null) => void) | null = null;
+  private welcomeSpoken = false;
+  private voiceWatchTimer = 0;
+  private voicePrev = { shield: 1, hullLow: false, energyLow: false, stage: -1, alarms: 0, assetLow: false, detectionHigh: false };
 
   private readonly environmentRoot = new THREE.Group();
   private readonly backdropRoot = createSpaceBackdrop();
@@ -1058,6 +1067,7 @@ export class SpaceGame {
     this.installEventListeners();
     this.resize();
     this.setQuality(true);
+    this.initScore();
     const stats = this.getCurrentShipStats();
     this.playerHull = stats.hull;
     this.playerShield = stats.shield;
@@ -1151,8 +1161,15 @@ export class SpaceGame {
     this.wheelRollInput = 0;
     this.resetMotionStars();
     this.randomState = (Date.now() ^ stats.mass ^ stats.speed) >>> 0;
-    if (chapter) this.beginCampaign(chapter);
-    else this.scheduleWave(1);
+    this.narrator?.clear();
+    this.voicePrev = { shield: 1, hullLow: false, energyLow: false, stage: -1, alarms: 0, assetLow: false, detectionHigh: false };
+    if (chapter) {
+      this.beginCampaign(chapter);
+      this.say(`ch${chapter.number}-brief`);
+    } else {
+      this.say('launch-arcade');
+      this.scheduleWave(1);
+    }
     this.syncCameraToPlayer(0, true);
     this.clock.start();
     void this.audio.resume();
@@ -1188,6 +1205,7 @@ export class SpaceGame {
   returnToMenu(): void {
     this.releaseMouseCapture(true);
     this.releaseContinuousInput();
+    this.narrator?.clear();
     this.resetGameplayState();
     this.mode = 'menu';
     this.result = null;
@@ -1220,6 +1238,103 @@ export class SpaceGame {
 
   setMuted(muted: boolean): void {
     this.audio.setMuted(muted);
+    this.music?.setMuted(muted);
+    this.narrator?.setMuted(muted);
+  }
+
+  setMusicVolume(volume: number): void {
+    this.music?.setVolume(volume);
+  }
+
+  setVoiceVolume(volume: number): void {
+    this.narrator?.setVolume(volume);
+  }
+
+  setSubtitlesEnabled(enabled: boolean): void {
+    this.narrator?.setSubtitles(enabled);
+  }
+
+  setSubtitleHandler(handler: (line: { role: VoiceRole; text: string } | null) => void): void {
+    this.subtitleHandler = handler;
+  }
+
+  /** Call from the first user gesture: browsers keep audio suspended until then. */
+  unlockAudio(): void {
+    void this.audio.resume().then(() => {
+      this.narrator?.preloadAll();
+      if (!this.welcomeSpoken && this.mode === 'menu') {
+        this.welcomeSpoken = true;
+        this.narrator?.say('menu-welcome');
+      }
+    });
+  }
+
+  private initScore(): void {
+    const context = this.audio.getContext();
+    if (!context || this.music) return;
+    this.music = new MusicDirector(context, context.destination);
+    this.narrator = new Narrator(
+      context,
+      context.destination,
+      {
+        onSubtitle: (line) => this.subtitleHandler?.(line),
+        onSpeaking: (speaking) => this.music?.setDucked(speaking),
+      },
+      import.meta.env.BASE_URL,
+    );
+    this.music.setMode('menu');
+  }
+
+  private say(id: string, cooldown = 0): void {
+    this.narrator?.say(id, cooldown);
+  }
+
+  private updateMusic(): void {
+    const music = this.music;
+    if (!music) return;
+    music.setPaused(this.mode === 'paused');
+    let mode: MusicMode = 'menu';
+    if (this.mode === 'ended') mode = this.result === 'victory' ? 'victory' : 'defeat';
+    else if (this.mode === 'playing' || this.mode === 'paused') {
+      const combatCount = this.enemies.filter((enemy) => isCombatShip(enemy.shipClass)).length;
+      if (this.boss && !this.boss.defeated) mode = 'boss';
+      else if (this.campaignRun?.currentTracker.kind === 'stealth') mode = 'stealth';
+      else mode = 'combat';
+      music.setIntensity(mode === 'combat' ? Math.min(1, 0.15 + combatCount / 6 + (this.playerFireCooldown > 0 ? 0.1 : 0)) : 0.6);
+    }
+    music.setMode(mode);
+  }
+
+  /** Throttled watcher that turns state changes into onboard-computer and wingman callouts. */
+  private updateVoice(dt: number): void {
+    this.voiceWatchTimer += dt;
+    if (this.voiceWatchTimer < 0.25 || !this.narrator) return;
+    this.voiceWatchTimer = 0;
+    const stats = this.getCurrentShipStats();
+    const prev = this.voicePrev;
+    if (prev.shield > 0 && this.playerShield <= 0 && stats.shield > 0) this.say('shields-down', 20);
+    prev.shield = this.playerShield;
+    const hullLow = this.playerHull < stats.hull * 0.25;
+    if (hullLow && !prev.hullLow) this.say('hull-critical', 25);
+    prev.hullLow = hullLow;
+    const energyLow = this.energy < 15;
+    if (energyLow && !prev.energyLow) this.say('low-energy', 30);
+    prev.energyLow = energyLow;
+    if (!this.campaignRun) return;
+    const snapshot = this.campaignRun.snapshot();
+    if (prev.stage >= 0 && snapshot.stageIndex > prev.stage) this.say('stage-complete', 3);
+    prev.stage = snapshot.stageIndex;
+    const stage = snapshot.stage;
+    const alarms = stage.counters.alarms ?? 0;
+    if (alarms > prev.alarms) this.say('stealth-alarm', 5);
+    prev.alarms = alarms;
+    const detectionHigh = (stage.detection ?? 0) > 0.7;
+    if (detectionHigh && !prev.detectionHigh) this.say('stealth-warning', 25);
+    prev.detectionHigh = detectionHigh;
+    const assetLow = !!stage.assetHull && stage.assetHull.current / stage.assetHull.max < 0.3;
+    if (assetLow && !prev.assetLow) this.say('asset-low', 40);
+    prev.assetLow = assetLow;
+    if (stage.kind === 'scan' && stage.progressText.includes('SLOW DOWN TO SCAN')) this.say('scan-slow', 25);
   }
 
   /** Scales both the distant sky stars and the streaking motion stars: 0 = none, 1 = default, 2 = dense. */
@@ -1442,6 +1557,8 @@ export class SpaceGame {
     }
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    this.music?.dispose();
+    this.narrator?.clear();
     this.releaseMouseCapture(true);
     this.removeEventListeners();
     this.resetGameplayState();
@@ -1592,6 +1709,7 @@ export class SpaceGame {
       this.updatePausedScene();
     }
 
+    this.updateMusic();
     if (this.highQuality) {
       this.composer.render();
     } else {
@@ -1678,6 +1796,7 @@ export class SpaceGame {
       this.pickupMessage = undefined;
     }
     this.recoveryPocketCooldown = Math.max(0, this.recoveryPocketCooldown - dt);
+    this.updateVoice(dt);
 
     if (this.combo > 0 && this.lastKillTimer > COMBO_WINDOW) {
       this.combo = 0;
@@ -1937,6 +2056,7 @@ export class SpaceGame {
       this.spawnEnemy(shipClass, { position, hunter: atAsset });
     });
     this.flashAssistMessage(atAsset ? 'RAIDERS INBOUND — PROTECT THE ASSET' : 'HOSTILES INBOUND');
+    this.say('raid-inbound', 15);
   }
 
   private getObjectiveFocus(): { position: THREE.Vector3; name: string; radius: number } | null {
@@ -2093,6 +2213,7 @@ export class SpaceGame {
     }
     if (this.torpedoCooldown > 0) return;
     this.torpedoes -= 1;
+    this.say(this.torpedoes === 0 ? 'torpedo-empty' : 'torpedo-away', 25);
     this.torpedoCooldown = TORPEDO.cooldown;
     this.shotsFired += 1;
     const basis = getBasisVectors(this.playerRoot.quaternion);
@@ -2315,6 +2436,7 @@ export class SpaceGame {
     }
     const resolved = this.resolveTarget();
     this.flashAssistMessage(resolved ? `TARGET LOCKED · ${resolved.name}` : 'TARGET LOST');
+    if (resolved) this.say('target-locked', 6);
   }
 
   clearTarget(): void {
@@ -2420,6 +2542,7 @@ export class SpaceGame {
       this.flashAssistMessage(
         mode === 'off' ? reason ?? 'MANUAL CONTROL' : mode === 'autopilot' ? 'AUTOPILOT ENGAGED' : 'AUTOCOMBAT ENGAGED',
       );
+      this.say(mode === 'off' ? 'manual-control' : mode === 'autopilot' ? 'autopilot-on' : 'autocombat-on', 2);
     }
     this.emitSnapshot(true);
   }
@@ -2811,6 +2934,7 @@ export class SpaceGame {
     if (opts.tag) entity.tag = opts.tag;
     if (opts.hunter) entity.assetHunter = true;
     this.enemies.push(entity);
+    if (opts.ace) this.say('ace-engages', 12);
     if (opts.ace) this.flashAssistMessage(`ACE ${opts.callsign?.toUpperCase() ?? ''} ENGAGES`);
     return entity;
   }
@@ -3179,18 +3303,21 @@ export class SpaceGame {
       this.torpedoes += added;
       this.pickupMessageTimer = 2.6;
       this.pickupMessage = `PROTON TORPEDOES +${added} · X TO FIRE`;
+      this.say('pickup-torpedo', 12);
       this.spawnSpark(pickup.object.position, getPickupColor('torpedo'), 1);
       return true;
     } else if (pickup.type === 'overcharge') {
       this.overchargeTimer = OVERCHARGE.duration;
       this.pickupMessageTimer = 2.6;
       this.pickupMessage = `WEAPON OVERCHARGE · ${OVERCHARGE.duration}S`;
+      this.say('pickup-overcharge', 8);
       this.spawnSpark(pickup.object.position, getPickupColor('overcharge'), 1.2);
       return true;
     } else if (pickup.type === 'aegis') {
       this.aegisPoints = Math.min(AEGIS.points * 1.6, this.aegisPoints + AEGIS.points);
       this.pickupMessageTimer = 2.6;
       this.pickupMessage = `AEGIS OVERSHIELD +${AEGIS.points}`;
+      this.say('pickup-aegis', 8);
       this.spawnSpark(pickup.object.position, getPickupColor('aegis'), 1.2);
       return true;
     } else {
@@ -3202,6 +3329,7 @@ export class SpaceGame {
       const level = pickup.type === 'hull-upgrade' ? upgrades.hull : pickup.type === 'defense-upgrade' ? upgrades.defense : upgrades.attack;
       this.pickupMessageTimer = 2.8;
       this.pickupMessage = `${pickup.type.replace('-upgrade', '').toUpperCase()} UPGRADE Lv${level}`;
+      this.say(`upgrade-${pickup.type.replace('-upgrade', '')}`);
       this.spawnSpark(pickup.object.position, getPickupColor(pickup.type), 1);
       return true;
     }
@@ -3261,6 +3389,7 @@ export class SpaceGame {
       const position = enemy.object.position.clone().add(new THREE.Vector3(Math.cos(angle), this.randomRange(-0.3, 0.3), Math.sin(angle)).multiplyScalar(enemy.radius * 0.5 * (drops.length > 1 ? 1 : 0)));
       this.spawnPickup(drop.type, position, drop.amount, drop.permanent ? 1.1 : 0.9);
     });
+    if (drops.some((drop) => drop.permanent || isCombatPickup(drop.type))) this.say('salvage', 20);
     const best = drops.find((drop) => drop.permanent) ?? drops.find((drop) => isCombatPickup(drop.type)) ?? drops[0];
     this.flashAssistMessage(`SALVAGE DROPPED · ${PICKUP_LABELS_SHORT[best.type]}${drops.length > 1 ? ` +${drops.length - 1} MORE` : ''}`);
   }
@@ -3486,6 +3615,7 @@ export class SpaceGame {
     this.bossStartTime = this.missionTime;
     this.bossClearTime = null;
     this.audio.playBossAlarm();
+    this.say('boss-warning');
   }
 
   private clearBossVisuals(): void {
@@ -3576,6 +3706,8 @@ export class SpaceGame {
     this.bossPhase = phase;
     if (phase === 'defeated') return;
     this.audio.playBossStinger(true);
+    if (phase === 'exposed') this.say('boss-exposed');
+    else if (phase === 'critical') this.say('boss-critical');
     if (phase === 'exposed' && previous === 'shielded') {
       this.spawnExplosion(this.gameplayCarrier.position.clone(), 9, 0x7fe4ff);
       this.audio.playExplosion(4.5);
@@ -4454,6 +4586,7 @@ export class SpaceGame {
       roster.push(...trimmed);
     }
     this.wave = wave;
+    if (!this.campaignRun && wave >= 2 && wave <= 4) this.say(`wave-${wave}`);
     this.message = `Wave ${wave}: ${config.message}`;
     this.spawnClock = 0;
     this.nextWaveDelay = 0;
@@ -4683,6 +4816,13 @@ export class SpaceGame {
     this.mode = 'ended';
     this.result = result;
     this.message = message;
+    this.narrator?.clear();
+    if (this.campaignChapter) {
+      if (result === 'victory') {
+        this.say('chapter-success');
+        this.say(`ch${this.campaignChapter.number}-debrief`);
+      } else this.say('chapter-failed');
+    } else this.say(result === 'victory' ? 'victory-arcade' : 'defeat');
     this.releaseMouseCapture(true);
     this.releaseContinuousInput();
     this.audio.setEngine(false, 0, false);

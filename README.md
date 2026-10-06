@@ -1,6 +1,6 @@
 # VOID SQUADRON
 
-An original cinematic browser-based 3D space shooter. Built with TypeScript, Three.js, and Tailwind CSS. All spacecraft, planets, nebulae, asteroids, visual effects, and audio are generated locally — no ripped game assets or asset services. The UI typefaces (Chakra Petch and JetBrains Mono, SIL OFL) are bundled from `@fontsource` packages; nothing is fetched from a CDN at runtime.
+An original cinematic browser-based 3D space shooter. Built with TypeScript, Three.js, and Tailwind CSS. All spacecraft, planets, nebulae, asteroids, visual effects, and audio are generated locally — no ripped game assets or asset services. The UI typefaces (Chakra Petch and JetBrains Mono, SIL OFL) are bundled from `@fontsource` packages, and the narration clips are pre-rendered with Microsoft neural TTS voices and stored in the repository; nothing is fetched from a CDN or speech service at runtime.
 
 ## Run locally
 
@@ -23,6 +23,13 @@ Run the pure gameplay-rule tests with `npm test`.
 ## Mission
 
 The start screen is a single fullscreen composition with no scrolling on desktop: mission briefing and launch button on the left, a live 3D scene in the middle (your craft rotates and banks on a dock cradle beside a rotating ring station with blinking lights and escorts flying past), and a **ship dossier** on the right with role, description, relative stat bars (hull, shield, speed, armor, firepower; amber segments show your permanent upgrades), upgrade pips and your personal record. A compact row of six spacecraft cards (with images rendered from the real 3D models) sits along the bottom; click one, press **1–6**, or use **← →** to switch. On tablets and phones the same content stacks into a scrolling layout. Press **Launch Mission** or Enter to deploy. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
+
+### Music and narration
+
+- **Music** (`src/music.ts`) is an original score synthesized live with the Web Audio API (no samples): a floating pad-and-arpeggio theme in the hangar, a driving combat track whose drums and stabs scale with the number of hostiles, a sparse tense cue for stealth stages, a heavier track for the Leviathan, plus a fanfare on victory and a slow dirge on defeat. The score ducks under narration and halves when paused.
+- **Narration** (`src/narration.ts`, `src/voiceLines.ts`) uses pre-rendered **Microsoft neural voices**: *Command* (en-US-ChristopherNeural) reads chapter briefings, debriefs and wave calls; the *onboard AI* (en-US-AriaNeural) reports shields, hull, throttle, target locks, upgrades and stealth detection; the *wingman* (en-US-GuyNeural) shouts boss phases, salvage and raids. Computer and wingman go through a cockpit-radio filter. Lines have priorities (critical calls interrupt, chatter is dropped when busy) and per-line cooldowns, and a subtitle bar shows the spoken text.
+- The clips are static MP3s in `public/audio/voice` (about 2 MB), so nothing is fetched from Microsoft at play time. To change or add lines, edit `src/voiceLines.ts` and run `node --experimental-strip-types scripts/generate-voice.mjs` (needs network access; `--force` re-renders everything). A test fails when a line has no clip.
+- Settings: **Music volume**, **Narration volume** and **Subtitles**. The SOUND button mutes everything. Browsers keep audio locked until your first click or key press, so music and the welcome line start then.
 
 ### Salvage drops
 
@@ -145,6 +152,7 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/campaign.ts` — pure campaign module: the seven chapters, stage trackers (eliminate, scan, stealth, retrieve, defend, navigate, hunt, boss), layouts, ranks and progress persistence.
 - `src/campaign.test.ts` — campaign tests.
 - `src/drops.ts` / `src/drops.test.ts` — salvage drop tables and rolls.
+- `src/music.ts` — procedural score director; `src/narration.ts` — voice clip player; `src/voiceLines.ts` — narration script and voice assignments; `scripts/generate-voice.mjs` — clip generator.
 - `src/station.ts` — procedural space station and dock cradle used by the start screen.
 - `src/menuMotion.ts` — pure choreography helpers for the start-screen hero craft, escorts and camera.
 - `src/thumbnails.ts` — renders the hangar tile images from the real 3D models.
