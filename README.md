@@ -44,7 +44,7 @@ On touchscreens, drag on the space view to steer and fire. Keyboard and mouse on
 
 ### Game settings
 
-Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Capture Sensitivity** slider adjusts captured steering from **0.5× to 10×**, default **5×**, without altering unlocked mouse or keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
+Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Mouse Sensitivity** slider (**0.5× to 10×**, default **5×**) scales both captured relative steering and free-cursor steering (a gain of 0.6× per step, so the default 5× reaches full turn rate at about a third of the half-screen deflection), without altering keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
 
 ### Tactical radar
 
@@ -79,6 +79,10 @@ The results screen (victory or defeat) shows flight time, accuracy (shots hit / 
 ### Personal records
 
 Each spacecraft keeps its own record in browser local storage: **best mission rank, fastest Leviathan kill, best score and victory count**. The hangar cards show the best rank and boss time (or UNRANKED), and the results screen flags **NEW BEST RANK**, **FASTEST LEVIATHAN KILL** and **NEW HIGH SCORE** when you beat a record. Only victories update rank, boss time and wins; defeats only update the best score. Corrupt or unavailable storage falls back to empty records without breaking play. Logic lives in `src/records.ts`, covered by `src/records.test.ts`.
+
+### Explosions
+
+Destroyed ships, asteroids, boss systems and your own ship trigger a layered blast: a white-hot flash, soft additive fireballs that cool from white through orange to red, smoke puffs, expanding shockwave rings, tumbling debris that glows and cools, round spark showers, and secondary blasts. **Lethal collisions** are bigger and more violent (more debris, an extra shockwave, up to several secondary blasts) and shake the camera in proportion to distance. When your ship is destroyed, time slows briefly (about 1.4–2 s) while the blast plays; the results screen follows about 2.3 s later. Asteroid blasts use rocky debris and brown smoke. At most 14 blasts run at once to protect frame rate.
 
 ### Collision mechanics
 

@@ -302,6 +302,16 @@ interface LaserEntity {
   ownerId: number | 'player';
 }
 
+type BlastCause = 'weapon' | 'collision';
+
+interface BlastEntity {
+  id: number;
+  root: THREE.Group;
+  age: number;
+  life: number;
+  parts: Array<(age: number, dt: number) => void>;
+}
+
 interface ExplosionEntity {
   id: number;
   object: THREE.Group;
@@ -346,6 +356,8 @@ const PICKUP_SPARKLE_DISTANCE = 1.4;
 const DEBUG_COLLISION_OPACITY = 0.16;
 const LASER_UP_VECTOR = new THREE.Vector3(0, 0, 1);
 const POINTER_CAPTURE_SENSITIVITY = 2.25;
+// Free-cursor steering shares the sensitivity setting: at the 5x default, reaching full turn rate takes about a third of the half-screen deflection.
+const UNLOCKED_CURSOR_GAIN_PER_X = 0.6;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
@@ -605,6 +617,13 @@ export class SpaceGame {
   private asteroids: AsteroidEntity[] = [];
   private lasers: LaserEntity[] = [];
   private explosions: ExplosionEntity[] = [];
+  private blasts: BlastEntity[] = [];
+  private blastId = 0;
+  private blastTextures: { fire: THREE.CanvasTexture; smoke: THREE.CanvasTexture } | null = null;
+  private cameraShake = 0;
+  private readonly lastShakeOffset = new THREE.Vector3();
+  private slowMo = 0;
+  private slowMoDuration = 1;
   private pickups: PickupEntity[] = [];
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
@@ -624,6 +643,7 @@ export class SpaceGame {
 
   private unlockedPointerTarget = new THREE.Vector2();
   private capturedPointerTarget = new THREE.Vector2();
+  private readonly scratchPointer = new THREE.Vector2();
   private fireHeld = false;
   private boostHeld = false;
   private yawAxis = 0;
@@ -1287,7 +1307,12 @@ export class SpaceGame {
     if (this.disposed) {
       return;
     }
-    const dt = Math.min(0.05, this.clock.getDelta() || 0.016);
+    let dt = Math.min(0.05, this.clock.getDelta() || 0.016);
+    if (this.slowMo > 0) {
+      const progress = 1 - this.slowMo / this.slowMoDuration;
+      this.slowMo = Math.max(0, this.slowMo - dt);
+      dt *= 0.2 + 0.8 * progress * progress;
+    }
     if (this.mode === 'playing') {
       this.updatePlaying(dt);
     } else if (this.mode === 'menu') {
@@ -1339,6 +1364,7 @@ export class SpaceGame {
   private updateEndedScene(dt: number): void {
     this.planet.rotation.y += dt * 0.02;
     this.updateExplosions(dt);
+    this.updateBlasts(dt);
     this.updateMotionStars(dt, Math.max(8, this.playerVelocity.length() * 0.35));
     this.syncCameraToPlayer(dt, false);
     this.updateBackdropAnchors();
@@ -1369,6 +1395,7 @@ export class SpaceGame {
     this.previousPlayerPosition.copy(this.playerRoot.position);
     this.refreshEnvironmentCollisionBounds();
     this.updatePlayerMovement(dt, movementStats);
+    this.updateBlasts(dt);
     this.processSpawns();
     this.maintainAsteroidField();
     this.updateEnemies(dt);
@@ -1413,7 +1440,11 @@ export class SpaceGame {
 
   private updatePlayerMovement(dt: number, stats: ShipDefinition): void {
     const profile = FLIGHT_PROFILES[this.ship];
-    const pointerTarget = this.isMouseCaptureActive() ? this.capturedPointerTarget : this.unlockedPointerTarget;
+    const captured = this.isMouseCaptureActive();
+    const cursorGain = clamp(this.mouseSensitivity * UNLOCKED_CURSOR_GAIN_PER_X, 0.5, 8);
+    const pointerTarget = captured
+      ? this.capturedPointerTarget
+      : this.scratchPointer.set(clamp(this.unlockedPointerTarget.x * cursorGain, -1, 1), clamp(this.unlockedPointerTarget.y * cursorGain, -1, 1));
     const mouseYaw = Math.abs(pointerTarget.x) < 0.025 ? 0 : pointerTarget.x;
     const mousePitch = Math.abs(pointerTarget.y) < 0.025 ? 0 : pointerTarget.y;
     const yawInput = clamp(mouseYaw + this.yawAxis * 0.55, -1, 1);
@@ -2368,8 +2399,7 @@ export class SpaceGame {
   }
 
   private onBossSubsystemDestroyed(sub: CapitalShipSubsystem): void {
-    this.spawnExplosion(sub.worldCenter, 6, sub.type === 'shield_generator' ? 0x7fe4ff : 0xff945a);
-    this.audio.playExplosion(3.6);
+    this.spawnBlast(sub.worldCenter, { radius: sub.radius * this.gameplayCarrier.scale.x * 0.9, power: 2.4, cause: 'collision' });
     this.score += sub.type === 'bridge' ? 2500 : 600;
     this.setBossSubsystemVisibility(this.boss);
     this.spawnPickup('shield', sub.worldCenter.clone(), 40, 0.8);
@@ -2390,7 +2420,7 @@ export class SpaceGame {
     this.bossVictoryTimer += dt;
     if (Math.floor(this.bossVictoryTimer * 6) !== Math.floor((this.bossVictoryTimer - dt) * 6)) {
       const offset = new THREE.Vector3(this.randomRange(-9, 9), this.randomRange(-4, 6), this.randomRange(-12, 12)).applyQuaternion(this.gameplayCarrier.quaternion);
-      this.spawnExplosion(this.gameplayCarrier.position.clone().add(offset), this.randomRange(4, 8), 0xffa15a);
+      this.spawnBlast(this.gameplayCarrier.position.clone().add(offset), { radius: this.randomRange(9, 17), power: 3, cause: 'collision' });
     }
     if (this.bossVictoryTimer > 3.2) {
       this.endGame('victory', 'The Leviathan is broken. The blockade is lifted.');
@@ -2705,7 +2735,7 @@ export class SpaceGame {
     }
   }
 
-  private commitPlayerDamageResult(result: DamageResult, defeatMessage: string): void {
+  private commitPlayerDamageResult(result: DamageResult, defeatMessage: string, cause: BlastCause = 'collision'): void {
     const next = resolvePlayerDamageState(
       { shield: this.playerShield, hull: this.playerHull },
       result,
@@ -2720,7 +2750,7 @@ export class SpaceGame {
       this.timeSincePlayerDamage = 0;
     }
     if (this.damageEnabled && result.destroyed) {
-      this.endGame('defeat', defeatMessage);
+      this.endGame('defeat', defeatMessage, cause);
     }
   }
 
@@ -2731,13 +2761,18 @@ export class SpaceGame {
     const stats = this.getCurrentShipStats();
     const result = applyDamage({ shield: this.playerShield, hull: this.playerHull }, rawDamage, stats.armor);
     this.audio.playImpact(this.damageEnabled ? result.shieldLoss > 0 : this.playerShield > 0, rawDamage);
-    this.commitPlayerDamageResult(result, 'Your hull has collapsed.');
+    this.commitPlayerDamageResult(result, 'Your hull has collapsed.', 'weapon');
   }
 
   private destroyEnemy(enemy: EnemyEntity, byPlayer: boolean): void {
     if (!this.enemies.includes(enemy)) return;
-    this.spawnExplosion(enemy.object.position, enemy.shipClass === 'destroyer' ? 2.6 : 1.8, 0xff945a);
-    this.audio.playExplosion(enemy.shipClass === 'destroyer' ? 2.8 : 1.6);
+    const power: Record<ShipClass, number> = { fighter: 1.2, interceptor: 1, bomber: 1.5, shuttle: 1.3, freighter: 1.9, destroyer: 2.6 };
+    this.spawnBlast(enemy.object.position, {
+      radius: enemy.radius * 1.15,
+      power: power[enemy.shipClass],
+      velocity: enemy.velocity,
+      cause: byPlayer ? 'weapon' : 'collision',
+    });
     if (byPlayer) {
       this.kills += 1;
       this.combo = getComboAfterKill(this.combo, this.lastKillTimer);
@@ -2750,12 +2785,268 @@ export class SpaceGame {
 
   private destroyAsteroid(asteroid: AsteroidEntity, byPlayer: boolean): void {
     if (!this.asteroids.includes(asteroid)) return;
-    this.spawnExplosion(asteroid.object.position, 1.2 + asteroid.radius * 0.4, 0xffba75);
-    this.audio.playExplosion(1 + asteroid.radius * 0.35);
+    this.spawnBlast(asteroid.object.position, {
+      radius: asteroid.radius * 1.5,
+      power: 0.7 + asteroid.radius * 0.28,
+      velocity: asteroid.velocity,
+      cause: byPlayer ? 'weapon' : 'collision',
+      rocky: true,
+    });
     if (byPlayer) {
       this.score += getAsteroidScore(asteroid.radius, Math.max(1, this.combo));
     }
     this.removeAsteroid(asteroid);
+  }
+
+  private getBlastTextures(): { fire: THREE.CanvasTexture; smoke: THREE.CanvasTexture } {
+    if (this.blastTextures) return this.blastTextures;
+    const make = (draw: (ctx: CanvasRenderingContext2D, size: number) => void): THREE.CanvasTexture => {
+      const size = 128;
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (ctx) draw(ctx, size);
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      return texture;
+    };
+    const blob = (ctx: CanvasRenderingContext2D, x: number, y: number, r: number, stops: Array<[number, string]>) => {
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+      stops.forEach(([at, color]) => gradient.addColorStop(at, color));
+      ctx.fillStyle = gradient;
+      ctx.fillRect(0, 0, 128, 128);
+    };
+    const fire = make((ctx, size) => {
+      blob(ctx, size / 2, size / 2, size / 2, [[0, 'rgba(255,255,255,1)'], [0.25, 'rgba(255,255,255,.85)'], [0.6, 'rgba(255,255,255,.3)'], [1, 'rgba(255,255,255,0)']]);
+    });
+    const smoke = make((ctx, size) => {
+      for (let index = 0; index < 7; index += 1) {
+        const angle = (index / 7) * Math.PI * 2;
+        const distance = index === 0 ? 0 : size * 0.16;
+        blob(ctx, size / 2 + Math.cos(angle) * distance, size / 2 + Math.sin(angle) * distance, size * 0.34, [[0, 'rgba(255,255,255,.55)'], [0.6, 'rgba(255,255,255,.2)'], [1, 'rgba(255,255,255,0)']]);
+      }
+    });
+    this.blastTextures = { fire, smoke };
+    return this.blastTextures;
+  }
+
+  private updateBlasts(dt: number): void {
+    for (const blast of this.blasts) {
+      blast.age += dt;
+      for (const part of blast.parts) part(blast.age, dt);
+    }
+    const finished = this.blasts.filter((blast) => blast.age >= blast.life);
+    finished.forEach((blast) => {
+      disposeObject3D(blast.root);
+      this.blasts = this.blasts.filter((candidate) => candidate.id !== blast.id);
+    });
+  }
+
+  /** Layered, additive-glow explosion: flash, fireballs, smoke, shockwaves, debris, sparks and secondary blasts. */
+  private spawnBlast(
+    position: THREE.Vector3,
+    options: { radius: number; power: number; cause?: BlastCause; velocity?: THREE.Vector3; rocky?: boolean },
+  ): void {
+    const collision = options.cause === 'collision';
+    const radius = Math.max(1.4, options.radius);
+    const power = clamp(options.power * (collision ? 1.3 : 1), 0.5, 4.5);
+    const inherit = (options.velocity ?? new THREE.Vector3()).clone().multiplyScalar(0.45);
+    const root = new THREE.Group();
+    root.position.copy(position);
+    this.effectLayer.add(root);
+    const parts: BlastEntity['parts'] = [];
+    const ramp = [0xffffff, 0xfff0b0, 0xffb347, 0xff5a1f, 0x6e1a0c].map((hex) => new THREE.Color(hex));
+    const rampColor = (t: number, target: THREE.Color): THREE.Color => {
+      const scaled = clamp(t, 0, 1) * (ramp.length - 1);
+      const index = Math.min(ramp.length - 2, Math.floor(scaled));
+      return target.copy(ramp[index]).lerp(ramp[index + 1], scaled - index);
+    };
+    const unit = () => new THREE.Vector3(this.randomRange(-1, 1), this.randomRange(-1, 1), this.randomRange(-1, 1)).normalize();
+    const additive = (color: number, opacity = 1) =>
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+
+    const textures = this.getBlastTextures();
+    const sprite = (map: THREE.Texture, color: number, blending: THREE.Blending): THREE.Sprite => {
+      const material = new THREE.SpriteMaterial({ map, color, transparent: true, opacity: 0, depthWrite: false, blending });
+      material.rotation = this.randomRange(0, Math.PI * 2);
+      const instance = new THREE.Sprite(material);
+      instance.visible = false;
+      root.add(instance);
+      return instance;
+    };
+    const addFlash = (offset: THREE.Vector3, size: number, delay: number, life: number) => {
+      const flash = sprite(textures.fire, 0xfff6d8, THREE.AdditiveBlending);
+      flash.position.copy(offset);
+      parts.push((age) => {
+        const t = (age - delay) / life;
+        flash.visible = t >= 0 && t <= 1;
+        if (!flash.visible) return;
+        flash.scale.setScalar(size * 2 * (0.6 + 1.9 * (1 - Math.pow(1 - t, 3))));
+        flash.material.opacity = Math.pow(1 - t, 2);
+      });
+    };
+    const addFireball = (offset: THREE.Vector3, r0: number, r1: number, delay: number, life: number) => {
+      const ball = sprite(textures.fire, 0xffffff, THREE.AdditiveBlending);
+      ball.position.copy(offset);
+      const color = new THREE.Color();
+      const spin = this.randomRange(-0.9, 0.9);
+      parts.push((age, dt) => {
+        const t = (age - delay) / life;
+        ball.visible = t >= 0 && t <= 1;
+        if (!ball.visible) return;
+        ball.scale.setScalar(2 * (r0 + (r1 - r0) * (1 - Math.pow(1 - t, 2.2))));
+        ball.material.rotation += spin * dt;
+        ball.material.color.copy(rampColor(t, color));
+        ball.material.opacity = Math.min(1, t / 0.08) * Math.pow(1 - t, 1.1);
+      });
+    };
+    const addSmoke = (offset: THREE.Vector3, r0: number, r1: number, delay: number, life: number) => {
+      const puff = sprite(textures.smoke, rocky(0x6a5d50, 0x30323a), THREE.NormalBlending);
+      puff.position.copy(offset);
+      const drift = unit().multiplyScalar(radius * 0.3);
+      const spin = this.randomRange(-0.5, 0.5);
+      parts.push((age, dt) => {
+        const t = (age - delay) / life;
+        puff.visible = t >= 0 && t <= 1;
+        if (!puff.visible) return;
+        puff.position.addScaledVector(drift, dt);
+        puff.scale.setScalar(2 * (r0 + (r1 - r0) * (1 - Math.pow(1 - t, 1.8))));
+        puff.material.rotation += spin * dt;
+        puff.material.opacity = Math.min(1, t / 0.2) * (1 - t) * 0.75;
+      });
+    };
+    function rocky(rockColor: number, metalColor: number): number {
+      return options.rocky ? rockColor : metalColor;
+    }
+    const addShock = (color: number, reach: number, life: number, delay = 0) => {
+      const mesh = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 56), additive(color, 0));
+      (mesh.material as THREE.MeshBasicMaterial).side = THREE.DoubleSide;
+      mesh.rotation.set(this.randomRange(0, Math.PI), this.randomRange(0, Math.PI), 0);
+      mesh.visible = false;
+      root.add(mesh);
+      parts.push((age) => {
+        const t = (age - delay) / life;
+        mesh.visible = t >= 0 && t <= 1;
+        if (!mesh.visible) return;
+        mesh.scale.setScalar(radius * (0.3 + reach * (1 - Math.pow(1 - t, 3))));
+        (mesh.material as THREE.MeshBasicMaterial).opacity = Math.pow(1 - t, 1.5) * 0.85;
+      });
+    };
+
+    // Primary burst
+    addFlash(new THREE.Vector3(), radius, 0, 0.28);
+    const fireballs = 4 + Math.round(power * 1.5);
+    for (let index = 0; index < fireballs; index += 1) {
+      const offset = unit().multiplyScalar(radius * this.randomRange(0.05, 0.55));
+      addFireball(offset, radius * 0.4, radius * this.randomRange(1.4, 2.3), this.randomRange(0, 0.14), this.randomRange(0.85, 1.4));
+    }
+    for (let index = 0; index < 3 + Math.round(power); index += 1) {
+      addSmoke(unit().multiplyScalar(radius * 0.5), radius * 0.6, radius * this.randomRange(1.6, 2.5), this.randomRange(0.15, 0.45), this.randomRange(1.4, 2.2));
+    }
+    addShock(options.rocky ? 0xffd2a0 : 0xbfe9ff, 3.6 + power, 0.6);
+    addShock(0xffb46b, 2.6 + power * 0.7, 0.8, 0.06);
+    if (collision) addShock(0xffffff, 5.5 + power, 0.5, 0.02);
+
+    // Secondary blasts: cooking-off reactors and ruptured tanks
+    const secondaries = collision ? 3 + Math.round(power * 0.7) : Math.round(power * 0.6);
+    let secondaryBang = 0;
+    for (let index = 0; index < secondaries; index += 1) {
+      const delay = 0.14 + index * 0.17 + this.randomRange(0, 0.08);
+      const offset = unit().multiplyScalar(radius * this.randomRange(0.5, 1.2));
+      addFlash(offset, radius * 0.55, delay, 0.22);
+      addFireball(offset, radius * 0.2, radius * this.randomRange(0.6, 0.95), delay, this.randomRange(0.5, 0.8));
+      if (index === 0) {
+        parts.push((age) => {
+          if (secondaryBang === 0 && age >= delay) {
+            secondaryBang = 1;
+            this.audio.playExplosion(clamp(1.2 + power * 0.6, 1, 5));
+          }
+        });
+      }
+    }
+
+    // Debris: hot chunks that cool as they tumble away
+    const debrisGeometries = [new THREE.BoxGeometry(1, 1, 1), new THREE.TetrahedronGeometry(1), new THREE.OctahedronGeometry(1)];
+    const debrisCount = Math.round((10 + 12 * power) * (collision ? 1.4 : 1));
+    for (let index = 0; index < debrisCount; index += 1) {
+      const material = new THREE.MeshStandardMaterial({
+        color: rocky(0x6b5f55, 0x59627a),
+        emissive: 0xff6a1f,
+        emissiveIntensity: 2.4,
+        roughness: 0.6,
+        metalness: options.rocky ? 0.1 : 0.7,
+        transparent: true,
+      });
+      const mesh = new THREE.Mesh(debrisGeometries[index % debrisGeometries.length], material);
+      const baseScale = new THREE.Vector3(this.randomRange(0.06, 0.26), this.randomRange(0.06, 0.2), this.randomRange(0.08, 0.34)).multiplyScalar(radius);
+      mesh.scale.copy(baseScale);
+      mesh.rotation.set(this.randomRange(0, 6), this.randomRange(0, 6), this.randomRange(0, 6));
+      root.add(mesh);
+      const velocity = unit().multiplyScalar(radius * this.randomRange(2.5, 9) * (collision ? 1.3 : 1)).add(inherit);
+      const spin = unit().multiplyScalar(this.randomRange(2, 9));
+      const life = this.randomRange(1.4, 2.7);
+      parts.push((age, dt) => {
+        const t = age / life;
+        mesh.visible = t < 1;
+        if (!mesh.visible) return;
+        mesh.position.addScaledVector(velocity, dt);
+        velocity.multiplyScalar(Math.exp(-0.8 * dt));
+        mesh.rotation.x += spin.x * dt;
+        mesh.rotation.y += spin.y * dt;
+        mesh.rotation.z += spin.z * dt;
+        material.emissiveIntensity = 2.6 * Math.pow(1 - clamp(t * 1.4, 0, 1), 2);
+        const shrink = 1 - clamp((t - 0.7) / 0.3, 0, 1);
+        mesh.scale.copy(baseScale).multiplyScalar(shrink);
+        material.opacity = clamp(shrink * 1.5, 0, 1);
+      });
+    }
+
+    // Sparks: fast glowing streaks
+    const sparkCount = Math.round(70 + 90 * power);
+    const sparkPositions = new Float32Array(sparkCount * 3);
+    const sparkVelocities = Array.from({ length: sparkCount }, () => unit().multiplyScalar(radius * this.randomRange(5, 20)).add(inherit));
+    const sparkGeometry = new THREE.BufferGeometry();
+    sparkGeometry.setAttribute('position', new THREE.BufferAttribute(sparkPositions, 3));
+    const sparkMaterial = new THREE.PointsMaterial({
+      map: textures.fire,
+      color: 0xffd08a,
+      size: 1.1 * clamp(radius / 3, 0.7, 2.2),
+      sizeAttenuation: true,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sparks = new THREE.Points(sparkGeometry, sparkMaterial);
+    sparks.frustumCulled = false;
+    root.add(sparks);
+    parts.push((age, dt) => {
+      const t = age / 1.3;
+      sparks.visible = t < 1;
+      if (!sparks.visible) return;
+      for (let index = 0; index < sparkCount; index += 1) {
+        const velocity = sparkVelocities[index];
+        sparkPositions[index * 3] += velocity.x * dt;
+        sparkPositions[index * 3 + 1] += velocity.y * dt;
+        sparkPositions[index * 3 + 2] += velocity.z * dt;
+        velocity.multiplyScalar(Math.exp(-1.7 * dt));
+      }
+      sparkGeometry.attributes.position.needsUpdate = true;
+      sparkMaterial.opacity = Math.pow(1 - t, 1.3);
+      sparkMaterial.color.setHex(t < 0.35 ? 0xfff0c0 : 0xff9a45);
+    });
+
+    const blast: BlastEntity = { id: ++this.blastId, root, age: 0, life: 3.4, parts };
+    this.blasts.push(blast);
+    while (this.blasts.length > 14) {
+      const oldest = this.blasts.shift();
+      if (oldest) disposeObject3D(oldest.root);
+    }
+
+    const distance = position.distanceTo(this.camera.position);
+    this.cameraShake = Math.min(1.5, this.cameraShake + 0.2 * power * clamp(90 / (distance + 25), 0, 1.3));
+    this.audio.playExplosion(clamp(1 + radius * 0.3 + power, 1, 6));
   }
 
   private spawnExplosion(position: THREE.Vector3, size: number, color: number): void {
@@ -3044,7 +3335,7 @@ export class SpaceGame {
     this.syncCollisionBoundsVisibility();
   }
 
-  private endGame(result: GameSnapshot['result'], message: string): void {
+  private endGame(result: GameSnapshot['result'], message: string, cause: BlastCause = 'weapon'): void {
     if (this.mode !== 'playing') {
       return;
     }
@@ -3056,13 +3347,24 @@ export class SpaceGame {
     this.audio.setEngine(false, 0, false);
     this.audio.setBossDrone(false, 0);
     if (result === 'defeat') {
-      this.spawnExplosion(this.playerRoot.position, 2.5, 0xff6f4d);
-      this.audio.playExplosion(3.2);
+      this.spawnBlast(this.playerRoot.position, {
+        radius: this.playerRadius * 1.5,
+        power: cause === 'collision' ? 3.2 : 2.4,
+        velocity: this.playerVelocity,
+        cause,
+      });
+      this.playerRoot.visible = false;
+      this.slowMoDuration = cause === 'collision' ? 2 : 1.4;
+      this.slowMo = this.slowMoDuration;
     }
     this.emitSnapshot(true);
   }
 
   private resetGameplayState(): void {
+    this.blasts.forEach((blast) => disposeObject3D(blast.root));
+    this.blasts = [];
+    this.cameraShake = 0;
+    this.slowMo = 0;
     this.boss = null;
     this.bossVictoryTimer = 0;
     this.bossPhase = null;
@@ -3198,6 +3500,10 @@ export class SpaceGame {
   }
 
   private syncCameraToPlayer(dt: number, force: boolean): void {
+    if (this.lastShakeOffset.lengthSq() > 0) {
+      this.camera.position.sub(this.lastShakeOffset);
+      this.lastShakeOffset.set(0, 0, 0);
+    }
     const profile = FLIGHT_PROFILES[this.ship];
     const frame = getChaseCameraFrame(this.playerRoot.position, this.playerRoot.quaternion, this.playerVelocity, {
       distance: profile.cameraDistance,
@@ -3216,6 +3522,11 @@ export class SpaceGame {
       this.camera.up.lerp(frame.up, blend).normalize();
     }
     this.camera.lookAt(this.cameraLookTarget);
+    this.cameraShake = Math.max(0, this.cameraShake - dt * 1.7);
+    if (this.cameraShake > 0.01) {
+      this.lastShakeOffset.set(this.randomRange(-1, 1), this.randomRange(-1, 1), this.randomRange(-1, 1)).multiplyScalar(this.cameraShake * 1.1);
+      this.camera.position.add(this.lastShakeOffset);
+    }
   }
 
   private resetCameraForMenu(): void {
