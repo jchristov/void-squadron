@@ -597,7 +597,7 @@ export class SpaceGame {
   private damageEnabled = true;
   private difficulty: Difficulty = 'standard';
   private mouseCaptureEnabled = false;
-  private mouseSensitivity = 1;
+  private mouseSensitivity = 5;
   private pointerLockReleaseSuppressed = false;
   private pointerLockRequested = false;
 
@@ -996,7 +996,7 @@ export class SpaceGame {
 
   setMouseSensitivity(sensitivity: number): void {
     if (!Number.isFinite(sensitivity)) return;
-    this.mouseSensitivity = clamp(sensitivity, 0.25, 3);
+    this.mouseSensitivity = clamp(sensitivity, 0.5, 10);
   }
 
   setMouseCaptureEnabled(enabled: boolean): void {
@@ -1197,12 +1197,12 @@ export class SpaceGame {
       this.menuRoot.add(escort);
     }
 
-    this.menuHero.position.set(12.5, -3.2, -10.5);
+    this.menuHero.position.set(3.2, -3.4, -10.5);
     this.menuHero.rotation.set(0.16, -0.62, -0.2);
     this.menuRoot.add(this.menuHero);
 
     const heroLight = new THREE.PointLight(0x8ab8ff, 5.5, 70, 2.4);
-    heroLight.position.set(12, -0.5, -2);
+    heroLight.position.set(5, -0.5, -2);
     this.menuRoot.add(heroLight);
 
     const ambient = new THREE.AmbientLight(0x4f617b, 1.2);
@@ -1318,7 +1318,7 @@ export class SpaceGame {
     this.planetPivot.rotation.z = Math.sin(elapsed * 0.05) * 0.05;
     this.menuCarrier.position.y = 13.5 + Math.sin(elapsed * 0.35) * 0.6;
     this.menuCarrier.rotation.z = Math.sin(elapsed * 0.22) * 0.03;
-    this.menuHero.position.y = -3.2 + Math.sin(elapsed * 1.1) * 0.4;
+    this.menuHero.position.y = -3.4 + Math.sin(elapsed * 1.1) * 0.4;
     this.menuHero.rotation.y = -0.62 + Math.sin(elapsed * 0.55) * 0.08;
     this.menuEscorts.forEach((escort, index) => {
       escort.position.y += Math.sin(elapsed * (0.42 + index * 0.16)) * 0.004;

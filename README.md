@@ -22,7 +22,7 @@ Run the pure gameplay-rule tests with `npm test`.
 
 ## Mission
 
-Choose a spacecraft in the hangar to update its live 3D preview and stats, then click **Launch Mission** or **Deploy Selected Ship**. Enter also launches when a spacecraft tile has focus. The hangar scrolls on smaller windows so the mission controls and spacecraft cards never overlap. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
+The start screen is a single fullscreen composition with no scrolling on desktop: mission briefing and launch button on the left, a live 3D hangar scene in the middle, and a **ship dossier** on the right with role, description, relative stat bars (hull, shield, speed, armor, firepower; amber segments show your permanent upgrades), upgrade pips and your personal record. A compact row of six spacecraft cards sits along the bottom; click one, press **1–6**, or use **← →** to switch. On tablets and phones the same content stacks into a scrolling layout. Press **Launch Mission** or Enter to deploy. This launches Operation Shattered Orbit. Destroy combat hostiles in five increasingly difficult waves to break the blockade. Non-attacking shuttles and freighters try to escape and are optional bonus targets, not wave blockers. Interceptors chase aggressively, fighters perform attack runs, and heavy warships turn more slowly. Disengage far from the battle to break pursuit and collect shield, energy, and hull-repair supplies in recovery pockets or dropped by destroyed ships. Fly in any direction, turn around to chase an opponent, and evade pursuit in a true three-dimensional arena. Hostiles no longer disappear behind the camera or clear a wave merely by passing you. Your best score is saved in browser local storage when a mission ends (when storage is available).
 
 ### Controls
 
@@ -34,6 +34,7 @@ Choose a spacecraft in the hangar to update its live 3D preview and stats, then 
 | Hold Shift | Boost while energy is available |
 | M | Toggle mouse capture; during menus enables it for next launch |
 | P / Escape | Pause / resume |
+| 1–6 / ← → (start screen) | Pick a spacecraft; the dossier and 3D preview update |
 | Enter / launch button | Launch from the hangar |
 | SOUND | Toggle synthesized audio |
 | FX | Toggle high / performance rendering |
@@ -43,7 +44,7 @@ On touchscreens, drag on the space view to steer and fire. Keyboard and mouse on
 
 ### Game settings
 
-Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Capture Sensitivity** slider adjusts captured steering from **0.25× to 3×**, default **1×**, without altering unlocked mouse or keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
+Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Capture Sensitivity** slider adjusts captured steering from **0.5× to 10×**, default **5×**, without altering unlocked mouse or keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
 
 ### Tactical radar
 
