@@ -71,6 +71,10 @@ Wave 5 adds a capital-ship boss, **The Leviathan** (Class VII blockade carrier),
 
 **Balance:** all numbers live in `src/capital.ts` (`BOSS_TUNING`, `BOSS_DIFFICULTY`, escort limits) and are covered by `src/capital.test.ts`. They were tuned with headless autopilot runs inside the real game loop (no rendering), using damage-on fights against the boss and its escorts. Two pilot models were used: a pinned orbit at 110 km that weaves by a configurable amount (boss-only), and the same orbit with lead-aimed gunnery against escorts. Results with a competent pilot at upgrade level 0: **Relaxed** and **Standard** win about every run on fighter, bomber and destroyer, **Veteran** wins roughly 30–85% of runs depending on ship, and fights last 30–55 s. At upgrade levels 5 and 10 the pilot wins more comfortably (more HP left), consistent with the rule that encounter scaling stays below player upgrade gains. A pilot that flies a steady straight line is shredded by design: the turrets lead your motion, so weaving matters. These are simulations, not human playtests; adjust the constants if real play feels off.
 
+### Results breakdown
+
+The results screen (victory or defeat) shows flight time, accuracy (shots hit / fired), damage taken (shield + hull absorbed, including regenerated shield), hostiles destroyed, Leviathan time-to-destroy or remaining health, and how many of its four systems you knocked out. Victories also get a **mission rank**: S/A/B/C from accuracy, damage taken, boss kill time and systems destroyed (defeats are unranked). Helpers and thresholds are in `src/summary.ts`, covered by `src/summary.test.ts`.
+
 ### Collision mechanics
 
 Asteroid and spacecraft impacts use relative velocity, mass, and armor to determine damage. Shields absorb incoming damage before the hull; a quiet interval allows shield regeneration, but hull damage is permanent. Impact separation and contact cooldowns prevent a single overlap from applying damage every frame. Boosting into an asteroid is especially dangerous for a lightly armored interceptor.
@@ -86,6 +90,8 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/rules.ts` — ship profiles and pure combat/collision rules.
 - `src/capital.ts` — Leviathan boss subsystems, turrets, phases, and balance tuning.
 - `src/capital.test.ts` — boss mechanics and tuning regression tests.
+- `src/summary.ts` — mission summary, accuracy, duration formatting and ranking.
+- `src/summary.test.ts` — summary and ranking tests.
 - `src/audio.ts` — locally synthesized combat audio.
 - `src/rules.test.ts` — gameplay-rule regression tests.
 

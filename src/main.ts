@@ -3,6 +3,7 @@ import { SpaceGame, type GameSnapshot } from './game';
 import { SHIPS, type ShipClass } from './rules';
 import { relativeRadarPosition, projectRadarContact } from './radar';
 import { formatSpaceDistance } from './units';
+import { formatDuration, getMissionRank } from './summary';
 import { UPGRADE_MAX_LEVEL, getUpgradedShipStats, type UpgradeLevels } from './upgrades';
 
 const app = document.querySelector<HTMLElement>('#app')!;
@@ -84,7 +85,7 @@ app.innerHTML = `
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
   <section id="pause" class="overlay hidden" aria-labelledby="pause-title"><div class="modal"><span class="eyebrow">FLIGHT SYSTEMS ON STANDBY</span><h2 id="pause-title">HOLDING<br><span>POSITION.</span></h2><p>Take a breath, pilot. The frontier can wait.</p><button id="resume" class="launch-button flex items-center justify-between">RESUME FLIGHT ${arrow}</button><button id="abort" class="secondary-button">RETURN TO HANGAR</button></div></section>
-  <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="modal"><span id="result-eyebrow" class="eyebrow"></span><h2 id="result-title"></h2><p id="result-copy"></p><div class="result-stats flex justify-between"><div><span class="meta-label">FINAL SCORE</span><strong id="final-score"></strong></div><div><span class="meta-label">CONFIRMED KILLS</span><strong id="final-kills"></strong></div></div><button id="retry" class="launch-button flex items-center justify-between">DEPLOY AGAIN ${arrow}</button><button id="return" class="secondary-button">RETURN TO HANGAR</button></div></section>
+  <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="modal"><span id="result-eyebrow" class="eyebrow"></span><h2 id="result-title"></h2><p id="result-copy"></p><div id="result-breakdown" class="result-breakdown" aria-label="Mission breakdown"></div><div class="result-stats flex justify-between"><div><span class="meta-label">FINAL SCORE</span><strong id="final-score"></strong></div><div><span class="meta-label">CONFIRMED KILLS</span><strong id="final-kills"></strong></div></div><button id="retry" class="launch-button flex items-center justify-between">DEPLOY AGAIN ${arrow}</button><button id="return" class="secondary-button">RETURN TO HANGAR</button></div></section>
   <dialog id="settings"><form method="dialog"><button class="dialog-close" aria-label="Close game settings">×</button><span class="eyebrow">FLIGHT CONFIGURATION</span><h2>GAME SETTINGS</h2><label class="setting-row" for="difficulty"><span>DIFFICULTY<small>Enemy aggression and recovery generosity</small></span><select id="difficulty"><option value="relaxed">Relaxed</option><option value="standard" selected>Standard</option><option value="veteran">Veteran</option></select></label><label class="setting-row" for="collisions-setting"><span>PHYSICAL COLLISIONS<small>Spacecraft, asteroids, planets and carriers</small></span><input id="collisions-setting" type="checkbox" checked></label><label class="setting-row" for="damage-setting"><span>PLAYER DAMAGE<small>Off: your hull and shields ignore incoming damage</small></span><input id="damage-setting" type="checkbox" checked></label><label class="setting-row" for="capture-setting"><span>CAPTURE MOUSE<small>Lock and hide cursor during flight; Escape releases it</small></span><input id="capture-setting" type="checkbox"></label><label class="setting-row sensitivity-row" for="mouse-sensitivity"><span>CAPTURE SENSITIVITY<small>Relative mouse steering only · M toggles capture</small></span><div class="sensitivity-control"><output id="sensitivity-value" for="mouse-sensitivity">1.00×</output><input id="mouse-sensitivity" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Captured mouse sensitivity"></div></label><p class="small-copy">Collisions and player damage are independent. Disabling damage keeps your weapons and power-up collection active. Mouse capture begins on Launch or Resume, with browser permission.</p><button class="secondary-button">APPLY & CLOSE</button></form></dialog>
   <dialog id="manual"><form method="dialog"><button class="dialog-close" aria-label="Close flight manual">×</button><span class="eyebrow">PILOT BRIEFING / 07</span><h2>FLIGHT MANUAL</h2><p>Clear combat hostiles across five waves. Fighters make attack passes, interceptors chase aggressively, and heavier warships turn slowly. Shuttles and freighters flee without firing: optional bonus targets, not mission blockers. Fly away to break pursuit and recover using shield, energy, and hull-repair supplies.</p><dl><dt>MOUSE / WASD / ARROWS</dt><dd>Yaw and pitch your ship. Point your nose where you want to fly; thrust carries you forward in that direction.</dd><dt>SCROLL WHEEL / Q / E</dt><dd>Roll around your ship’s forward axis. Your chase camera banks with you.</dd><dt>M / MOUSE CAPTURE</dt><dd>Toggle cursor capture. Adjust capture sensitivity from 0.25× to 3× in Settings. Escape releases capture and pauses.</dd><dt>CLICK / SPACE</dt><dd>Hold to fire your primary cannons.</dd><dt>SHIFT</dt><dd>Boost. Energy replenishes when released.</dd><dt>P / ESC</dt><dd>Pause or resume your mission.</dd><dt>TACTICAL RADAR</dt><dd>Red diamonds: combat hostiles. Amber outlines: optional fleeing ships. Cyan crosses: supplies. Use + / − to zoom from 250 to 8,000 km. Top is ahead; bottom is behind. ▲ / ▼ indicate relative altitude. Distant contacts stay on the radar edge.</dd><dt>WAVE 5 · THE LEVIATHAN</dt><dd>A capital carrier must be destroyed to win. Shoot the two shield domes first, then the command bridge; the flight deck silences the ventral turrets. Main-hull hits are weak. Keep weaving: its turrets lead your motion, so flying in a straight line is dangerous. Radar marks it in pink.</dd><dt>BOUNDS</dt><dd>Optional collision-sphere visualization. Off by default; impact flashes appear on spacecraft surfaces.</dd></dl><div class="manual-warning"><strong>WATCH YOUR VECTOR.</strong><p>Asteroid impacts scale with relative speed, mass, and armor. Shields absorb damage first. Shields regenerate after a quiet interval — hull damage is permanent.</p></div><p class="small-copy">On touchscreens, drag on the space view to steer and fire. Desktop keyboard and mouse recommended.</p><button class="secondary-button">UNDERSTOOD</button></form></dialog>
 `;
@@ -157,6 +158,22 @@ function drawRadar() {
   ctx.globalAlpha = 1;
   text('radar-range', Number.isFinite(nearest) ? `NEAREST HOSTILE ${formatSpaceDistance(nearest)}` : 'NO COMBAT CONTACTS');
 }
+function renderBreakdown(state: GameSnapshot, won: boolean) {
+  const summary = state.summary;
+  const target = el('result-breakdown');
+  if (!summary) { target.innerHTML = ''; return; }
+  const rank = getMissionRank(summary, won);
+  const bossValue = summary.bossTimeSec !== null ? formatDuration(summary.bossTimeSec) : summary.bossEngaged ? `${summary.bossHullPct ?? 100}% LEFT` : 'NOT ENGAGED';
+  const rows: [string, string, string?][] = [
+    ['FLIGHT TIME', formatDuration(summary.durationSec)],
+    ['ACCURACY', `${Math.round(summary.accuracy * 100)}%`, `${summary.shotsHit} / ${summary.shotsFired} shots`],
+    ['DAMAGE TAKEN', String(Math.round(summary.damageTaken)), 'shield + hull absorbed'],
+    ['HOSTILES DOWN', String(summary.kills)],
+    ['LEVIATHAN', bossValue, summary.bossTimeSec !== null ? 'time to destroy' : summary.bossEngaged ? 'combined shield + hull' : undefined],
+    ['SYSTEMS KNOCKED OUT', `${summary.subsystemsDestroyed} / ${summary.subsystemsTotal || 4}`],
+  ];
+  target.innerHTML = `<div class="rank ${rank === '—' ? 'unranked' : ''}" data-rank="${rank}"><span>MISSION RANK</span><b>${rank}</b></div><dl>${rows.map(([label, value, note]) => `<div><dt>${label}</dt><dd>${value}</dd>${note ? `<small>${note}</small>` : ''}</div>`).join('')}</dl>`;
+}
 let bossBannerTimer = 0;
 function hideBossBanner() { window.clearTimeout(bossBannerTimer); el('boss-banner').classList.add('hidden'); }
 function showBossBanner(kicker: string, title: string, copy: string, tone: 'alert' | 'critical') {
@@ -183,6 +200,7 @@ function update(state: GameSnapshot) {
       el('result-title').innerHTML = won ? 'FRONTIER<br><span>LIBERATED.</span>' : 'LOST TO<br><span>THE VOID.</span>';
       text('result-copy', won ? 'You made the impossible look inevitable. Welcome home, pilot.' : 'Every legend starts with another attempt. Your squadron awaits.');
       text('final-score', state.score.toLocaleString()); text('final-kills', state.kills);
+      renderBreakdown(state, won);
       best = Math.max(best, state.score);
       try { localStorage.setItem('void-squadron-best', String(best)); } catch { /* The game remains playable without persistence. */ }
       el('retry').focus();

@@ -98,6 +98,7 @@ import {
   type CapitalShipSubsystem,
   type CapitalShipTurret,
 } from './capital.ts';
+import { computeAccuracy, type MissionSummary } from './summary.ts';
 
 export interface GameSnapshot {
   mode: 'menu' | 'playing' | 'paused' | 'ended';
@@ -124,6 +125,7 @@ export interface GameSnapshot {
   recovery?: boolean;
   captureActive?: boolean;
   difficulty?: Difficulty;
+  summary?: MissionSummary;
   boss?: {
     name: string;
     hull: number;
@@ -607,6 +609,12 @@ export class SpaceGame {
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
   private bossVictoryTimer = 0;
+  private missionTime = 0;
+  private shotsFired = 0;
+  private shotsHit = 0;
+  private damageTaken = 0;
+  private bossStartTime: number | null = null;
+  private bossClearTime: number | null = null;
   private bossPhase: BossPhase | null = null;
   private bossShieldFlash = 0;
   private bossFxTimer = 0;
@@ -846,6 +854,12 @@ export class SpaceGame {
     this.kills = 0;
     this.combo = 0;
     this.lastKillTimer = COMBO_WINDOW + 1;
+    this.missionTime = 0;
+    this.shotsFired = 0;
+    this.shotsHit = 0;
+    this.damageTaken = 0;
+    this.bossStartTime = null;
+    this.bossClearTime = null;
     this.message = 'Squadron launch confirmed.';
     const stats = this.getCurrentShipStats();
     this.playerHull = stats.hull;
@@ -1335,6 +1349,7 @@ export class SpaceGame {
   private updatePlaying(dt: number): void {
     const movementStats = this.getCurrentShipStats();
     this.spawnClock += dt;
+    this.missionTime += dt;
     this.playerFireCooldown = Math.max(0, this.playerFireCooldown - dt);
     this.playerCollisionCooldown = Math.max(0, this.playerCollisionCooldown - dt);
     this.timeSincePlayerDamage += dt;
@@ -2051,6 +2066,7 @@ export class SpaceGame {
         life: profile.projectileLifetime,
         maxDistance: profile.projectileRange,
       });
+      this.shotsFired += 1;
     }
     this.audio.playLaser(false, stats.damage);
   }
@@ -2150,6 +2166,8 @@ export class SpaceGame {
     this.updateBossWorldAnchors();
     this.buildBossVisuals(this.boss);
     this.bossPhase = getBossPhase(this.boss);
+    this.bossStartTime = this.missionTime;
+    this.bossClearTime = null;
     this.audio.playBossAlarm();
   }
 
@@ -2328,6 +2346,7 @@ export class SpaceGame {
       }
       if (hitSub) {
         this.removeLaser(laser);
+        this.shotsHit += 1;
         const wasDestroyed = hitSub.destroyed;
         const shieldedBridge = hitSub.type === 'bridge' && !canDamageBridge(boss);
         if (shieldedBridge) this.bossShieldFlash = 1;
@@ -2340,6 +2359,7 @@ export class SpaceGame {
       }
       if (segmentSphereIntersection(laser.previousPosition, laser.object.position, hullCenter, 5 * scale + laser.radius) !== null) {
         this.removeLaser(laser);
+        this.shotsHit += 1;
         damageBossHullDirect(boss, laser.damage * BOSS_TUNING.hullHitMultiplier);
         if (boss.shield > 0) this.bossShieldFlash = 1;
         this.spawnSpark(laser.object.position, boss.shield > 0 ? 0x7fe4ff : 0xff8f63, 1.1);
@@ -2362,6 +2382,7 @@ export class SpaceGame {
     const boss = this.boss;
     if (!boss || !boss.defeated || this.mode !== 'playing') return;
     if (this.bossVictoryTimer === 0) {
+      this.bossClearTime = this.missionTime;
       this.score += 5000;
       this.setBossSubsystemVisibility(null);
       this.audio.playExplosion(4);
@@ -2523,6 +2544,7 @@ export class SpaceGame {
         }
         if (segmentSphereIntersection(laser.previousPosition, laser.object.position, enemy.object.position, enemy.radius + laser.radius) !== null) {
           this.removeLaser(laser);
+          this.shotsHit += 1;
           this.damageEnemy(enemy, laser.damage);
         }
       }
@@ -2538,6 +2560,7 @@ export class SpaceGame {
         }
         this.removeLaser(laser);
         if (laser.kind === 'player') {
+          this.shotsHit += 1;
           this.damageAsteroid(asteroid, laser.damage, true);
         } else {
           this.damageAsteroid(asteroid, laser.damage * 0.7, false);
@@ -2689,6 +2712,7 @@ export class SpaceGame {
       this.damageEnabled,
     );
     const tookDamage = next.shield !== this.playerShield || next.hull !== this.playerHull;
+    this.damageTaken += Math.max(0, this.playerShield - next.shield) + Math.max(0, this.playerHull - next.hull);
     this.playerShield = next.shield;
     this.playerHull = next.hull;
     this.shieldFlash = 1;
@@ -2924,6 +2948,26 @@ export class SpaceGame {
       : `Wave ${this.wave} engaged — ${tracked} combat threat${tracked === 1 ? '' : 's'}${bonusText}`;
   }
 
+  private buildSummary(): MissionSummary {
+    const stats = this.getCurrentShipStats();
+    const boss = this.boss;
+    const bossTimeSec = this.bossStartTime !== null && this.bossClearTime !== null ? this.bossClearTime - this.bossStartTime : null;
+    return {
+      durationSec: this.missionTime,
+      shotsFired: this.shotsFired,
+      shotsHit: this.shotsHit,
+      accuracy: computeAccuracy(this.shotsFired, this.shotsHit),
+      kills: this.kills,
+      damageTaken: this.damageTaken,
+      maxDurability: stats.hull + stats.shield,
+      bossEngaged: this.bossStartTime !== null,
+      bossTimeSec,
+      bossHullPct: boss ? Math.round(((boss.hull + boss.shield) / (boss.maxHull + boss.maxShield)) * 100) : null,
+      subsystemsDestroyed: boss ? boss.subsystems.filter((sub) => sub.destroyed).length : 0,
+      subsystemsTotal: boss ? boss.subsystems.length : 0,
+    };
+  }
+
   private emitSnapshot(force = false): void {
     if (!force && this.snapshotAccumulator < SNAPSHOT_INTERVAL) {
       return;
@@ -2958,6 +3002,7 @@ export class SpaceGame {
       recovery: this.recoveryActive,
       captureActive: this.isMouseCaptureActive(),
       difficulty: this.difficulty,
+      summary: this.buildSummary(),
       boss: this.boss
         ? {
             name: this.boss.name,
