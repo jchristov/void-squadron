@@ -1,6 +1,6 @@
 import './style.css';
 import { SpaceGame, type GameSnapshot } from './game';
-import { SHIPS, type ShipClass } from './rules';
+import { SHIPS, PICKUP_LABELS, PICKUP_TYPES, isUpgradePickup, pickupCssColor, type PickupType, type ShipClass } from './rules';
 import { relativeRadarPosition, projectRadarContact } from './radar';
 import { formatSpaceDistance } from './units';
 import { formatDuration, getMissionRank } from './summary';
@@ -94,17 +94,27 @@ app.innerHTML = `
     <aside class="upgrade-panel" aria-label="Permanent spacecraft upgrades"><div class="upgrade-title">PERMANENT UPGRADES <span>THIS SHIP</span></div><div class="upgrade-row"><span>HULL</span><div class="upgrade-track"><i id="upgrade-hull-bar"></i></div><b id="upgrade-hull-level">0 / 10</b></div><div class="upgrade-row"><span>DEFENSE</span><div class="upgrade-track"><i id="upgrade-defense-bar"></i></div><b id="upgrade-defense-level">0 / 10</b></div><div class="upgrade-row"><span>ATTACK</span><div class="upgrade-track"><i id="upgrade-attack-bar"></i></div><b id="upgrade-attack-level">0 / 10</b></div><div class="upgrade-effects" id="upgrade-effects"></div></aside>
     <div id="boss-banner" class="boss-banner hidden" role="alert" aria-live="assertive"><span id="boss-banner-kicker"></span><strong id="boss-banner-title"></strong><small id="boss-banner-copy"></small></div>
     <aside id="boss-card" class="boss-card hidden" aria-label="Capital ship status"><div class="boss-head"><span id="boss-name">THE LEVIATHAN</span><em id="boss-phase" class="boss-phase">SHIELDED</em><b id="boss-pct">100%</b></div><div class="boss-bar shield"><i id="boss-shield-bar"></i></div><div class="boss-bar hull"><i id="boss-hull-bar"></i></div><div class="boss-chips" id="boss-chips"></div></aside>
-    <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
+    <div id="target-layer" class="target-layer" aria-hidden="true">
+      <div id="target-box" class="target-box hidden"><i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i><div class="tb-label"><b id="tb-name"></b><span id="tb-dist"></span><em id="tb-detail"></em><div class="tb-bars"><i id="tb-shield"></i><i id="tb-hull"></i></div></div></div>
+      <div id="target-lead" class="target-lead hidden"></div>
+      <div id="target-arrow" class="target-arrow hidden"><svg viewBox="0 0 40 40"><path d="M35 20L9 7L16 20L9 33Z" fill="currentColor"/></svg><div class="ta-label"><b id="ta-name"></b><span id="ta-dist"></span><em id="ta-turn"></em></div></div>
+    </div>
+    <div class="assist-bar">
+      <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
+      <button id="assist-target" class="assist-btn" tabindex="-1" aria-label="Target nearest enemy (T)"><kbd>T</kbd><span>TARGET</span><small id="assist-target-info"></small></button>
+      <button id="assist-auto" class="assist-btn" tabindex="-1" aria-label="Toggle autopilot (P)"><kbd>P</kbd><span>AUTOPILOT</span><small id="assist-auto-info"></small></button>
+      <button id="assist-combat" class="assist-btn" tabindex="-1" aria-label="Toggle autocombat (C)"><kbd>C</kbd><span>AUTOCOMBAT</span><small id="assist-combat-info"></small></button>
+    </div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
     <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
-    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="pickup">+ SUPPLY</span><span class="boss">■ CAPITAL</span></div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · ▲/▼: ALTITUDE</div></aside>
+    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET</div></aside>
     <div id="recovery-status" class="recovery-status" role="status" aria-live="polite"></div>
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
   <section id="pause" class="overlay hidden" aria-labelledby="pause-title"><div class="modal"><span class="eyebrow">FLIGHT SYSTEMS ON STANDBY</span><h2 id="pause-title">HOLDING<br><span>POSITION.</span></h2><p>Take a breath, pilot. The frontier can wait.</p><button id="resume" class="launch-button flex items-center justify-between">RESUME FLIGHT ${arrow}</button><button id="abort" class="secondary-button">RETURN TO HANGAR</button></div></section>
   <section id="results" class="overlay hidden" aria-labelledby="result-title"><div class="modal"><span id="result-eyebrow" class="eyebrow"></span><h2 id="result-title"></h2><p id="result-copy"></p><div id="result-breakdown" class="result-breakdown" aria-label="Mission breakdown"></div><div id="result-records" class="result-records" role="status"></div><div class="result-stats flex justify-between"><div><span class="meta-label">FINAL SCORE</span><strong id="final-score"></strong></div><div><span class="meta-label">CONFIRMED KILLS</span><strong id="final-kills"></strong></div></div><button id="retry" class="launch-button flex items-center justify-between">DEPLOY AGAIN ${arrow}</button><button id="return" class="secondary-button">RETURN TO HANGAR</button></div></section>
   <dialog id="settings"><form method="dialog"><button class="dialog-close" aria-label="Close game settings">×</button><span class="eyebrow">FLIGHT CONFIGURATION</span><h2>GAME SETTINGS</h2><label class="setting-row" for="difficulty"><span>DIFFICULTY<small>Enemy aggression and recovery generosity</small></span><select id="difficulty"><option value="relaxed">Relaxed</option><option value="standard" selected>Standard</option><option value="veteran">Veteran</option></select></label><label class="setting-row" for="collisions-setting"><span>PHYSICAL COLLISIONS<small>Spacecraft, asteroids, planets and carriers</small></span><input id="collisions-setting" type="checkbox" checked></label><label class="setting-row" for="damage-setting"><span>PLAYER DAMAGE<small>Off: your hull and shields ignore incoming damage</small></span><input id="damage-setting" type="checkbox" checked></label><label class="setting-row" for="capture-setting"><span>CAPTURE MOUSE<small>Lock and hide cursor during flight; Escape releases it</small></span><input id="capture-setting" type="checkbox"></label><label class="setting-row sensitivity-row" for="mouse-sensitivity"><span>MOUSE SENSITIVITY<small>Scales both capture mode and free-cursor steering · M toggles capture</small></span><div class="sensitivity-control"><output id="sensitivity-value" for="mouse-sensitivity">5.0×</output><input id="mouse-sensitivity" type="range" min="0.5" max="10" step="0.5" value="5" aria-label="Mouse sensitivity"></div></label><p class="small-copy">Collisions and player damage are independent. Disabling damage keeps your weapons and power-up collection active. Mouse capture begins on Launch or Resume, with browser permission.</p><button class="secondary-button">APPLY & CLOSE</button></form></dialog>
-  <dialog id="manual"><form method="dialog"><button class="dialog-close" aria-label="Close flight manual">×</button><span class="eyebrow">PILOT BRIEFING / 07</span><h2>FLIGHT MANUAL</h2><p>Clear combat hostiles across five waves. Fighters make attack passes, interceptors chase aggressively, and heavier warships turn slowly. Shuttles and freighters flee without firing: optional bonus targets, not mission blockers. Fly away to break pursuit and recover using shield, energy, and hull-repair supplies.</p><dl><dt>MOUSE / WASD / ARROWS</dt><dd>Yaw and pitch your ship. Point your nose where you want to fly; thrust carries you forward in that direction.</dd><dt>SCROLL WHEEL / Q / E</dt><dd>Roll around your ship’s forward axis. Your chase camera banks with you.</dd><dt>M / MOUSE CAPTURE</dt><dd>Toggle cursor capture. Adjust capture sensitivity from 0.5× to 10× in Settings. Escape releases capture and pauses.</dd><dt>CLICK / SPACE</dt><dd>Hold to fire your primary cannons.</dd><dt>SHIFT</dt><dd>Boost. Energy replenishes when released.</dd><dt>P / ESC</dt><dd>Pause or resume your mission.</dd><dt>TACTICAL RADAR</dt><dd>Red diamonds: combat hostiles. Amber outlines: optional fleeing ships. Cyan crosses: supplies. Use + / − to zoom from 250 to 8,000 km. Top is ahead; bottom is behind. ▲ / ▼ indicate relative altitude. Distant contacts stay on the radar edge.</dd><dt>WAVE 5 · THE LEVIATHAN</dt><dd>A capital carrier must be destroyed to win. Shoot the two shield domes first, then the command bridge; the flight deck silences the ventral turrets. Main-hull hits are weak. Keep weaving: its turrets lead your motion, so flying in a straight line is dangerous. Radar marks it in pink.</dd><dt>BOUNDS</dt><dd>Optional collision-sphere visualization. Off by default; impact flashes appear on spacecraft surfaces.</dd></dl><div class="manual-warning"><strong>WATCH YOUR VECTOR.</strong><p>Asteroid impacts scale with relative speed, mass, and armor. Shields absorb damage first. Shields regenerate after a quiet interval — hull damage is permanent.</p></div><p class="small-copy">On touchscreens, drag on the space view to steer and fire. Desktop keyboard and mouse recommended.</p><button class="secondary-button">UNDERSTOOD</button></form></dialog>
+  <dialog id="manual"><form method="dialog"><button class="dialog-close" aria-label="Close flight manual">×</button><span class="eyebrow">PILOT BRIEFING / 07</span><h2>FLIGHT MANUAL</h2><p>Clear combat hostiles across five waves. Fighters make attack passes, interceptors chase aggressively, and heavier warships turn slowly. Shuttles and freighters flee without firing: optional bonus targets, not mission blockers. Fly away to break pursuit and recover using shield, energy, and hull-repair supplies.</p><dl><dt>MOUSE / WASD / ARROWS</dt><dd>Yaw and pitch your ship. Point your nose where you want to fly; thrust carries you forward in that direction.</dd><dt>SCROLL WHEEL / Q / E</dt><dd>Roll around your ship’s forward axis. Your chase camera banks with you.</dd><dt>M / MOUSE CAPTURE</dt><dd>Toggle cursor capture. Adjust capture sensitivity from 0.5× to 10× in Settings. Escape releases capture and pauses.</dd><dt>CLICK / SPACE</dt><dd>Hold to fire your primary cannons.</dd><dt>SHIFT</dt><dd>Boost. Energy replenishes when released.</dd><dt>ESC</dt><dd>Pause or resume your mission.</dd><dt>T / SHIFT+T</dt><dd>Lock a target: first press picks the hostile closest to your nose, further presses cycle outward. Shift+T clears it. You can also click a contact on the radar. A bracket marks the target on screen with a lead pip showing where to aim; when it is off-screen an edge arrow shows which way to turn.</dd><dt>P · AUTOPILOT</dt><dd>Flies toward your target (or the nearest hostile, capital ship or useful supply) without firing and steers around hazards. Any steering key, a big mouse movement in capture mode, or pressing P again takes control back.</dd><dt>C · AUTOCOMBAT</dt><dd>Full combat assist: hunts targets with lead aiming, fires when lined up, evades collisions, boosts to close distance, falls back to collect supplies when hurt, and attacks the Leviathan’s shield domes then bridge. It is an assistant, not an ace: stay alert.</dd><dt>TACTICAL RADAR</dt><dd>Red diamonds: combat hostiles. Amber outlines: optional fleeing ships. Supplies are color-coded crosses: yellow energy, blue shield, green hull repair; larger ringed diamonds are permanent upgrades (orange hull, violet defense, pink attack). A dashed white ring marks your locked target, and you can click any hostile on the radar to lock it. Use + / − to zoom from 250 to 8,000 km. Top is ahead; bottom is behind. ▲ / ▼ indicate relative altitude. Distant contacts stay on the radar edge.</dd><dt>WAVE 5 · THE LEVIATHAN</dt><dd>A capital carrier must be destroyed to win. Shoot the two shield domes first, then the command bridge; the flight deck silences the ventral turrets. Main-hull hits are weak. Keep weaving: its turrets lead your motion, so flying in a straight line is dangerous. Radar marks it in pink.</dd><dt>BOUNDS</dt><dd>Optional collision-sphere visualization. Off by default; impact flashes appear on spacecraft surfaces.</dd></dl><div class="manual-warning"><strong>WATCH YOUR VECTOR.</strong><p>Asteroid impacts scale with relative speed, mass, and armor. Shields absorb damage first. Shields regenerate after a quiet interval — hull damage is permanent.</p></div><p class="small-copy">On touchscreens, drag on the space view to steer and fire. Desktop keyboard and mouse recommended.</p><button class="secondary-button">UNDERSTOOD</button></form></dialog>
 `;
 const el = (id: string) => document.getElementById(id)!;
 const text = (id: string, value: string | number) => { const target = el(id); const next = String(value); if (target.textContent !== next) target.textContent = next; };
@@ -175,6 +185,8 @@ function launch() {
   applySettings();
   game?.start(selected);
 }
+type RadarContact = { position: { x: number; y: number; z: number }; kind: 'hostile' | 'neutral' | 'pickup' | 'boss' | 'system'; pickup?: PickupType; enemyId?: number };
+let radarHits: { x: number; y: number; kind: 'enemy' | 'boss'; id: number }[] = [];
 function drawRadar() {
   if (!game) return;
   const telemetry = game.getFlightTelemetry();
@@ -188,32 +200,65 @@ function drawRadar() {
   ctx.beginPath(); ctx.moveTo(center - radius, center); ctx.lineTo(center + radius, center); ctx.moveTo(center, center - radius); ctx.lineTo(center, center + radius); ctx.stroke();
   ctx.fillStyle = '#83e5e7'; ctx.beginPath(); ctx.moveTo(center, center - 9); ctx.lineTo(center + 5, center + 6); ctx.lineTo(center - 5, center + 6); ctx.closePath(); ctx.fill();
   let nearest = Infinity;
-  const contacts: { position: { x: number; y: number; z: number }; kind: 'hostile' | 'neutral' | 'pickup' | 'boss' | 'system' }[] = telemetry.enemies.map(enemy => ({position: enemy.position, kind: enemy.ship === 'shuttle' || enemy.ship === 'freighter' ? 'neutral' : 'hostile'}));
+  radarHits = [];
+  const contacts: RadarContact[] = telemetry.enemies.map(enemy => ({ position: enemy.position, enemyId: enemy.id, kind: enemy.ship === 'shuttle' || enemy.ship === 'freighter' ? 'neutral' : 'hostile' }));
   const bossTelemetry = telemetry.boss && !telemetry.boss.defeated ? telemetry.boss : null;
   if (bossTelemetry) {
     contacts.push({ position: bossTelemetry.position, kind: 'boss' });
     bossTelemetry.subsystems.filter(sub => !sub.destroyed).forEach(sub => contacts.push({ position: sub.position, kind: 'system' }));
   }
-  const supplies = (telemetry as typeof telemetry & { pickups?: readonly {position: {x:number;y:number;z:number}}[] }).pickups;
-  supplies?.forEach(pickup => contacts.push({position:pickup.position,kind:'pickup'}));
+  telemetry.pickups?.forEach(pickup => contacts.push({ position: pickup.position, kind: 'pickup', pickup: pickup.type }));
+  const target = telemetry.target;
   for (const contact of contacts) {
     const local = relativeRadarPosition(contact.position, telemetry.player.position, telemetry.player.orientation);
     const projected = projectRadarContact(local, radarRange);
     if (contact.kind === 'hostile' || contact.kind === 'boss') nearest = Math.min(nearest, projected.distance);
     const x = center + projected.x * radius, y = center + projected.y * radius;
-    ctx.globalAlpha = projected.edge ? .65 : 1;
-    ctx.strokeStyle = ctx.fillStyle = contact.kind === 'hostile' ? '#ff776c' : contact.kind === 'neutral' ? '#ffbf69' : contact.kind === 'boss' || contact.kind === 'system' ? '#ff4fa3' : '#83e5e7';
+    ctx.globalAlpha = projected.edge ? .7 : 1;
+    ctx.setLineDash([]);
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    if (contact.kind === 'boss') { ctx.lineWidth = 2.5; ctx.strokeRect(x - 9, y - 9, 18, 18); ctx.fillRect(x - 4, y - 4, 8, 8); continue; }
-    if (contact.kind === 'system') { ctx.fillRect(x - 2, y - 2, 4, 4); continue; }
-    if (contact.kind === 'pickup') { ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4);ctx.stroke(); }
-    else { ctx.moveTo(x,y-5);ctx.lineTo(x+5,y);ctx.lineTo(x,y+5);ctx.lineTo(x-5,y);ctx.closePath();if(contact.kind==='hostile')ctx.fill();else ctx.stroke(); }
-    if (Math.abs(local.y)>35) {ctx.font='14px monospace';ctx.fillText(local.y>0?'▲':'▼',x+7,y+4);}
+    if (contact.kind === 'pickup' && contact.pickup) {
+      const color = pickupCssColor(contact.pickup);
+      ctx.strokeStyle = ctx.fillStyle = color;
+      ctx.shadowColor = color; ctx.shadowBlur = isUpgradePickup(contact.pickup) ? 9 : 5;
+      ctx.beginPath();
+      if (isUpgradePickup(contact.pickup)) {
+        // Upgrades: a ringed diamond with a plus, bigger than ordinary supplies.
+        ctx.lineWidth = 2; ctx.moveTo(x, y - 8); ctx.lineTo(x + 8, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 8, y); ctx.closePath(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 3.5, y); ctx.lineTo(x + 3.5, y); ctx.moveTo(x, y - 3.5); ctx.lineTo(x, y + 3.5); ctx.stroke();
+      } else {
+        ctx.lineWidth = 2.6; ctx.moveTo(x - 4.5, y); ctx.lineTo(x + 4.5, y); ctx.moveTo(x, y - 4.5); ctx.lineTo(x, y + 4.5); ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      continue;
+    }
+    ctx.strokeStyle = ctx.fillStyle = contact.kind === 'hostile' ? '#ff776c' : contact.kind === 'neutral' ? '#ffbf69' : '#ff4fa3';
+    const isTarget = !!target && ((target.kind === 'boss' && contact.kind === 'boss') || (target.kind === 'enemy' && contact.enemyId === target.id));
+    if (contact.kind === 'boss') { ctx.lineWidth = 2.5; ctx.strokeRect(x - 9, y - 9, 18, 18); ctx.fillRect(x - 4, y - 4, 8, 8); radarHits.push({ x, y, kind: 'boss', id: 0 }); }
+    else if (contact.kind === 'system') { ctx.fillRect(x - 2, y - 2, 4, 4); }
+    else {
+      ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 5); ctx.lineTo(x - 5, y); ctx.closePath();
+      if (contact.kind === 'hostile') ctx.fill(); else ctx.stroke();
+      if (contact.enemyId !== undefined) radarHits.push({ x, y, kind: 'enemy', id: contact.enemyId });
+      if (Math.abs(local.y) > 35) { ctx.font = '14px monospace'; ctx.fillText(local.y > 0 ? '▲' : '▼', x + 7, y + 4); }
+    }
+    if (isTarget) {
+      ctx.globalAlpha = 1; ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.arc(x, y, contact.kind === 'boss' ? 17 : 11, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.strokeStyle = '#ffffff55'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(center, center); ctx.lineTo(x, y); ctx.stroke();
+    }
   }
   ctx.globalAlpha = 1;
   text('radar-range', Number.isFinite(nearest) ? `NEAREST HOSTILE ${formatSpaceDistance(nearest)}` : 'NO COMBAT CONTACTS');
 }
+el('radar').addEventListener('click', event => {
+  const canvas = el('radar') as HTMLCanvasElement;
+  const rect = canvas.getBoundingClientRect();
+  const x = (event.clientX - rect.left) / rect.width * 360, y = (event.clientY - rect.top) / rect.height * 360;
+  let best: (typeof radarHits)[number] | undefined, bestDistance = 26;
+  for (const hit of radarHits) { const d = Math.hypot(hit.x - x, hit.y - y); if (d < bestDistance) { bestDistance = d; best = hit; } }
+  if (best) game?.setTarget(best.kind, best.id);
+});
 function renderBreakdown(state: GameSnapshot, won: boolean) {
   const summary = state.summary;
   const target = el('result-breakdown');
@@ -277,6 +322,11 @@ function update(state: GameSnapshot) {
   text('capture-indicator', state.captureActive ? `M · MOUSE CAPTURED · ${mouseSensitivity.toFixed(1)}×` : `M · MOUSE FREE · ${mouseSensitivity.toFixed(1)}×`);
   el('capture-indicator').classList.toggle('captured', Boolean(state.captureActive));
   el('settings-open').setAttribute('title', `${state.difficulty || difficulty} difficulty · mouse ${state.captureActive ? 'captured' : 'free'}`);
+  const auto = state.autoMode ?? 'off';
+  el('assist-auto').classList.toggle('active', auto === 'autopilot'); el('assist-combat').classList.toggle('active', auto === 'combat');
+  text('assist-auto-info', auto === 'autopilot' ? state.autoStatus ?? '' : ''); text('assist-combat-info', auto === 'combat' ? state.autoStatus ?? '' : '');
+  el('assist-target').classList.toggle('active', !!state.target);
+  text('assist-target-info', state.target ? `${state.target.name} · ${formatSpaceDistance(state.target.distance)}` : '');
   const recovery = state as GameSnapshot & { recovery?: boolean; pickupMessage?: string };
   text('recovery-status', recovery.pickupMessage || (recovery.recovery ? 'DISENGAGED · RECOVERY ZONE' : ''));
   const levels: UpgradeLevels = state.upgrades;
@@ -353,6 +403,37 @@ el('difficulty').addEventListener('change', () => { difficulty = (el('difficulty
 for (const [id, setter] of [['collisions-setting', (value: boolean) => { collisionsEnabled = value; }], ['damage-setting', (value: boolean) => { damageEnabled = value; }], ['capture-setting', (value: boolean) => { mouseCaptureEnabled = value; }]] as const) {
   el(id).addEventListener('change', () => { setter((el(id) as HTMLInputElement).checked); applySettings(); });
 }
+for (const [id, action] of [['assist-target', () => game?.cycleTarget()], ['assist-auto', () => game?.toggleAutoMode('autopilot')], ['assist-combat', () => game?.toggleAutoMode('combat')]] as const) {
+  el(id).addEventListener('click', () => { action(); (el(id) as HTMLButtonElement).blur(); });
+}
+function updateTargetOverlay() {
+  const box = el('target-box'), arrow = el('target-arrow'), lead = el('target-lead');
+  const guidance = latest?.mode === 'playing' ? game?.getTargetGuidance() : null;
+  if (!guidance) { box.classList.add('hidden'); arrow.classList.add('hidden'); lead.classList.add('hidden'); return; }
+  const w = window.innerWidth, h = window.innerHeight;
+  const tone = guidance.hostile ? '#ff5d7a' : '#ffbf69';
+  const dist = formatSpaceDistance(guidance.distance);
+  if (guidance.onScreen) {
+    arrow.classList.add('hidden'); box.classList.remove('hidden');
+    box.style.setProperty('--tc', tone);
+    box.style.width = box.style.height = `${guidance.boxPx}px`;
+    box.style.transform = `translate(${guidance.x - guidance.boxPx / 2}px, ${guidance.y - guidance.boxPx / 2}px)`;
+    text('tb-name', guidance.name); text('tb-dist', dist);
+    text('tb-detail', `${guidance.detail}${guidance.closing > 1 ? ` · CLOSING ${Math.round(guidance.closing)} KM/S` : guidance.closing < -1 ? ` · OPENING ${Math.round(-guidance.closing)} KM/S` : ''}`);
+    el('tb-shield').style.width = `${guidance.shieldPct}%`; el('tb-hull').style.width = `${guidance.hullPct}%`;
+    if (guidance.lead) { lead.classList.remove('hidden'); lead.style.setProperty('--tc', tone); lead.style.transform = `translate(${guidance.lead.x}px, ${guidance.lead.y}px)`; } else lead.classList.add('hidden');
+  } else {
+    box.classList.add('hidden'); lead.classList.add('hidden'); arrow.classList.remove('hidden');
+    arrow.style.setProperty('--tc', tone);
+    const dx = Math.cos(guidance.edgeAngle), dy = -Math.sin(guidance.edgeAngle), margin = 92;
+    const t = Math.min((w / 2 - margin) / Math.max(1e-3, Math.abs(dx)), (h / 2 - margin) / Math.max(1e-3, Math.abs(dy)));
+    arrow.style.transform = `translate(${w / 2 + dx * t}px, ${h / 2 + dy * t}px)`;
+    (arrow.querySelector('svg') as SVGElement).style.transform = `rotate(${-guidance.edgeAngle}rad)`;
+    (arrow.querySelector('.ta-label') as HTMLElement).style.transform = `translate(${-dx * 74}px, ${-dy * 38}px)`;
+    text('ta-name', guidance.name); text('ta-dist', dist); text('ta-turn', `TURN ${guidance.instruction}`);
+  }
+}
+(function targetLoop() { updateTargetOverlay(); requestAnimationFrame(targetLoop); })();
 function zoomRadar(factor: number) {
   radarRange = Math.max(250, Math.min(8000, radarRange * factor));
   text('radar-scale', formatSpaceDistance(radarRange));
@@ -386,7 +467,12 @@ window.addEventListener('keydown', event => {
     }
   }
   if (event.code === 'Enter' && (!latest || latest.mode === 'menu') && ((event.target as HTMLElement).matches('body, [data-ship], #launch'))) { event.preventDefault(); launch(); }
-  if (event.code === 'Escape' || event.code === 'KeyP') {
+  if (latest?.mode === 'playing') {
+    if (event.code === 'KeyT') { event.preventDefault(); if (event.shiftKey) game?.clearTarget(); else game?.cycleTarget(); return; }
+    if (event.code === 'KeyP') { event.preventDefault(); game?.toggleAutoMode('autopilot'); return; }
+    if (event.code === 'KeyC') { event.preventDefault(); game?.toggleAutoMode('combat'); return; }
+  }
+  if (event.code === 'Escape') {
     if (latest?.mode === 'playing') { event.preventDefault(); game?.pause(); }
     else if (latest?.mode === 'paused') { event.preventDefault(); game?.resume(); }
   }

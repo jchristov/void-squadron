@@ -33,7 +33,10 @@ The start screen is a single fullscreen composition with no scrolling on desktop
 | Hold left mouse / Space | Fire primary weapons |
 | Hold Shift | Boost while energy is available |
 | M | Toggle mouse capture; during menus enables it for next launch |
-| P / Escape | Pause / resume |
+| Escape | Pause / resume |
+| T / Shift+T | Lock a target (nearest to your nose first, then cycle) / clear the lock; clicking a radar contact also locks it |
+| P | Toggle **autopilot** (flies to the target, nearest hostile or useful supply; never fires) |
+| C | Toggle **autocombat** (hunts, aims with lead, fires, evades, boosts, retreats to supplies when hurt) |
 | 1–6 / ← → (start screen) | Pick a spacecraft; the dossier and 3D preview update |
 | Enter / launch button | Launch from the hangar |
 | SOUND | Toggle synthesized audio |
@@ -46,7 +49,15 @@ On touchscreens, drag on the space view to steer and fire. Keyboard and mouse on
 
 Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Mouse Sensitivity** slider (**0.5× to 10×**, default **5×**) scales both captured relative steering and free-cursor steering (a gain of 0.6× per step, so the default 5× reaches full turn rate at about a third of the half-screen deflection), without altering keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
 
+### Targeting and pilot assists
+
+- **Targeting (T):** locks the hostile closest to your nose, then cycles outward on each press (Shift+T clears; destroyed targets clear themselves). You can also click any hostile on the radar. A bracket marks the target with its name, range, closing speed, state and shield/hull bars; a **lead pip** shows where to aim to hit it. When the target is off-screen an **edge arrow** points the way and spells out the turn ("TURN LEFT 121° · UP 10°"). While the Leviathan is alive it can be targeted too; the lock follows the best subsystem (nearest shield dome, then the bridge).
+- **Autopilot (P):** flies to your target, or otherwise the nearest hostile, the capital ship, a useful supply or the battle zone, without firing. It steers around asteroids, ships, the planet and the carrier hull using closest-approach prediction.
+- **Autocombat (C):** everything autopilot does plus lead-aimed firing when lined up, boosting to close distance, and evasion. Below 45% durability it retreats and collects supplies until it recovers to 80%. Against the Leviathan it hunts escorts first, then attacks shield domes and the bridge.
+- **Taking control back:** press P/C again, or touch any steering key (WASD, arrows, Q/E), or move the captured mouse a lot. The assist bar above the playfield shows each mode and what it is doing. Assists are an aid, not an ace: in headless test runs autocombat clears the Leviathan alone about 7 times in 8 but still loses regular dogfights fairly often, so keep an eye on it.
+
 ### Tactical radar
+
 
 The ship-relative scanner defaults to **1,000 km**, with +/− controls to zoom between **250 and 8,000 km**. One simulation world unit represents one kilometer; speed is shown in km/s. This is a consistent arcade space scale, not realistic orbital physics. The scanner maps nearby contacts; distant contacts remain on its edge to help locate the last combat ships. Red filled diamonds are hostiles, amber outlined diamonds are optional fleeing ships, cyan crosses are supplies, and pink markers are the Wave 5 capital ship and its subsystems. The top of the map is ahead, the bottom behind; ▲/▼ marks contacts above/below your flight plane. The scanner follows yaw, pitch, and roll and reports the nearest hostile's range.
 
@@ -96,7 +107,9 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/flight.ts` — pure 3D flight and collision mathematics.
 - `src/flight.test.ts` — flight orientation, pursuit, and collision regression tests.
 - `src/models.ts` — original procedural spacecraft and environmental models.
-- `src/rules.ts` — ship profiles and pure combat/collision rules.
+- `src/rules.ts` — ship profiles, pure combat/collision rules, and the shared pickup color table.
+- `src/pilot.ts` — pure autopilot helpers: steering, closest-approach collision prediction, retreat latch, bearings.
+- `src/pilot.test.ts` — pilot helper tests.
 - `src/capital.ts` — Leviathan boss subsystems, turrets, phases, and balance tuning.
 - `src/capital.test.ts` — boss mechanics and tuning regression tests.
 - `src/summary.ts` — mission summary, accuracy, duration formatting and ranking.

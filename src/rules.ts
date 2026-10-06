@@ -14,6 +14,33 @@ export type ShipClass = (typeof SHIP_CLASSES)[number];
 export type Difficulty = (typeof DIFFICULTIES)[number];
 export type PickupType = (typeof PICKUP_TYPES)[number];
 
+/** Single source of truth for supply colors: 3D pickups, radar markers and legends all read these. */
+export const PICKUP_COLORS: Record<PickupType, number> = {
+  energy: 0xffe14d,
+  shield: 0x4db8ff,
+  hull: 0x62f08a,
+  'hull-upgrade': 0xff9f43,
+  'defense-upgrade': 0xa78bff,
+  'attack-upgrade': 0xff5f8f,
+};
+
+export const PICKUP_LABELS: Record<PickupType, string> = {
+  energy: 'ENERGY',
+  shield: 'SHIELD',
+  hull: 'HULL',
+  'hull-upgrade': 'HULL UPGRADE',
+  'defense-upgrade': 'DEFENSE UPGRADE',
+  'attack-upgrade': 'ATTACK UPGRADE',
+};
+
+export function isUpgradePickup(type: PickupType): boolean {
+  return type.endsWith('-upgrade');
+}
+
+export function pickupCssColor(type: PickupType): string {
+  return `#${PICKUP_COLORS[type].toString(16).padStart(6, '0')}`;
+}
+
 export interface ShipDefinition {
   name: string;
   role: string;

@@ -39,6 +39,7 @@ import {
   BOOST_DRAIN_PER_SECOND,
   COMBO_WINDOW,
   MAX_ENERGY,
+  PICKUP_COLORS,
   PICKUP_LIFETIME_SECONDS,
   PICKUP_WORLD_CAP,
   SHIPS,
@@ -99,6 +100,17 @@ import {
   type CapitalShipTurret,
 } from './capital.ts';
 import { computeAccuracy, type MissionSummary } from './summary.ts';
+import { formatSpaceDistance } from './units.ts';
+import {
+  bearingDegrees,
+  breakoutDirection,
+  predictCollision,
+  describeBearing,
+  nextRetreatState,
+  pickBossObjective,
+  rollLevelInput,
+  steeringInputs,
+} from './pilot.ts';
 
 export interface GameSnapshot {
   mode: 'menu' | 'playing' | 'paused' | 'ended';
@@ -126,6 +138,9 @@ export interface GameSnapshot {
   captureActive?: boolean;
   difficulty?: Difficulty;
   summary?: MissionSummary;
+  autoMode?: AutoMode;
+  autoStatus?: string;
+  target?: { name: string; detail: string; distance: number } | null;
   boss?: {
     name: string;
     hull: number;
@@ -159,6 +174,7 @@ export interface FlightTelemetry {
   readonly asteroids: readonly Readonly<FlightTelemetryAsteroid>[];
   readonly projectiles: readonly Readonly<FlightTelemetryProjectile>[];
   readonly pickups?: readonly Readonly<FlightTelemetryPickup>[];
+  readonly target?: Readonly<{ kind: 'enemy' | 'boss'; id: number }> | null;
   readonly boss?: Readonly<{
     name: string;
     hull: number;
@@ -304,6 +320,51 @@ interface LaserEntity {
 
 type BlastCause = 'weapon' | 'collision';
 
+export type AutoMode = 'off' | 'autopilot' | 'combat';
+type TargetRef = { kind: 'enemy'; id: number } | { kind: 'boss' };
+
+export interface TargetGuidance {
+  kind: 'enemy' | 'boss';
+  name: string;
+  detail: string;
+  hostile: boolean;
+  distance: number;
+  closing: number;
+  hullPct: number;
+  shieldPct: number;
+  onScreen: boolean;
+  x: number;
+  y: number;
+  boxPx: number;
+  edgeAngle: number;
+  lead: { x: number; y: number } | null;
+  instruction: string;
+  yawDeg: number;
+  pitchDeg: number;
+}
+
+interface ResolvedTarget {
+  ref: TargetRef;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  radius: number;
+  name: string;
+  detail: string;
+  hostile: boolean;
+  hullPct: number;
+  shieldPct: number;
+}
+
+interface PilotObjective {
+  kind: 'target' | 'hostile' | 'boss' | 'supply' | 'flee' | 'anchor' | 'hold';
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  radius: number;
+  label: string;
+  hostile: boolean;
+  standoff: number;
+}
+
 interface BlastEntity {
   id: number;
   root: THREE.Group;
@@ -421,15 +482,7 @@ function withEmissiveMaterials(root: THREE.Object3D, callback: (material: THREE.
 }
 
 function getPickupColor(type: PickupType): number {
-  const colors: Record<PickupType, number> = {
-    energy: 0x72e8ff,
-    shield: 0x6fd1ff,
-    hull: 0xffb56c,
-    'hull-upgrade': 0xff8f66,
-    'defense-upgrade': 0x9d8bff,
-    'attack-upgrade': 0xff5f8f,
-  };
-  return colors[type];
+  return PICKUP_COLORS[type];
 }
 
 function createPickupModel(type: PickupType): THREE.Group {
@@ -628,6 +681,20 @@ export class SpaceGame {
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
   private bossVictoryTimer = 0;
+  private target: TargetRef | null = null;
+  private autoMode: AutoMode = 'off';
+  private autoStatus = '';
+  private autoBoost = false;
+  private autoFire = false;
+  private readonly autoInput = { yaw: 0, pitch: 0, roll: 0 };
+  private pilotRetreating = false;
+  private pilotBreakTimer = 0;
+  private pilotBreakSign = 1;
+  private pilotJinkTimer = 0;
+  private readonly pilotJink = new THREE.Vector2();
+  private pilotTargetId: number | null = null;
+  private pilotTargetHold = 0;
+  private manualMouseTravel = 0;
   private missionTime = 0;
   private shotsFired = 0;
   private shotsHit = 0;
@@ -660,6 +727,10 @@ export class SpaceGame {
       const rect = this.canvas.getBoundingClientRect();
       const width = Math.max(1, rect.width || this.canvas.clientWidth || 1);
       const height = Math.max(1, rect.height || this.canvas.clientHeight || 1);
+      if (this.autoMode !== 'off') {
+        this.manualMouseTravel += Math.hypot(event.movementX, event.movementY);
+        if (this.manualMouseTravel > 260) this.setAutoMode('off', 'MANUAL CONTROL');
+      }
       this.capturedPointerTarget.x = clamp(this.capturedPointerTarget.x + (event.movementX / width) * POINTER_CAPTURE_SENSITIVITY * this.mouseSensitivity, -1, 1);
       this.capturedPointerTarget.y = clamp(this.capturedPointerTarget.y - (event.movementY / height) * POINTER_CAPTURE_SENSITIVITY * this.mouseSensitivity, -1, 1);
       return;
@@ -725,6 +796,7 @@ export class SpaceGame {
       ].includes(event.code)
     ) {
       event.preventDefault();
+      if (this.autoMode !== 'off') this.setAutoMode('off', 'MANUAL CONTROL');
       this.heldKeys.add(event.code);
       this.recomputeKeyboardAxes();
     }
@@ -874,6 +946,12 @@ export class SpaceGame {
     this.kills = 0;
     this.combo = 0;
     this.lastKillTimer = COMBO_WINDOW + 1;
+    this.target = null;
+    this.autoMode = 'off';
+    this.autoStatus = '';
+    this.autoFire = false;
+    this.autoBoost = false;
+    this.pilotRetreating = false;
     this.missionTime = 0;
     this.shotsFired = 0;
     this.shotsHit = 0;
@@ -1155,6 +1233,7 @@ export class SpaceGame {
       asteroids,
       projectiles,
       pickups,
+      target: this.target ? freeze({ kind: this.target.kind, id: this.target.kind === 'enemy' ? this.target.id : 0 }) : null,
       boss: this.boss
         ? freeze({
             name: this.boss.name,
@@ -1394,6 +1473,11 @@ export class SpaceGame {
 
     this.previousPlayerPosition.copy(this.playerRoot.position);
     this.refreshEnvironmentCollisionBounds();
+    if (this.target && !this.resolveTarget()) {
+      this.target = null;
+      this.flashAssistMessage('TARGET DESTROYED');
+    }
+    this.updateAutopilot(dt);
     this.updatePlayerMovement(dt, movementStats);
     this.updateBlasts(dt);
     this.processSpawns();
@@ -1418,13 +1502,13 @@ export class SpaceGame {
 
     const stats = this.getCurrentShipStats();
     this.playerShield = regenerateShield(this.playerShield, stats.shield, this.timeSincePlayerDamage, dt);
-    if (this.boostHeld && this.energy > 0.1) {
+    if (this.isBoosting() && this.energy > 0.1) {
       this.energy = Math.max(0, this.energy - BOOST_DRAIN_PER_SECOND * dt);
     } else {
       this.energy = regenerateEnergy(this.energy, dt);
     }
 
-    if (this.fireHeld && this.playerFireCooldown <= 0) {
+    if ((this.fireHeld || this.autoFire) && this.playerFireCooldown <= 0) {
       this.firePlayerWeapons(this.getCurrentShipStats());
     }
 
@@ -1433,13 +1517,438 @@ export class SpaceGame {
     this.updateBackdropAnchors();
     this.updateMotionStars(dt, Math.max(this.environmentSpeed * 0.5, this.playerVelocity.length()));
     this.updateReticle();
-    this.audio.setEngine(true, Math.max(0.2, this.playerVelocity.length() / Math.max(1, stats.speed)), this.boostHeld && this.energy > 0.1);
+    this.audio.setEngine(true, Math.max(0.2, this.playerVelocity.length() / Math.max(1, stats.speed)), this.isBoosting() && this.energy > 0.1);
     this.message = this.buildPlayingMessage();
     this.advanceWaves(dt);
   }
 
+  private isBoosting(): boolean {
+    return this.boostHeld || this.autoBoost;
+  }
+
+  // ---------------------------------------------------------------- targeting
+
+  private resolveTarget(ref: TargetRef | null = this.target): ResolvedTarget | null {
+    if (!ref) return null;
+    if (ref.kind === 'enemy') {
+      const enemy = this.enemies.find((candidate) => candidate.id === ref.id);
+      if (!enemy) return null;
+      return {
+        ref,
+        position: enemy.object.position,
+        velocity: enemy.velocity,
+        radius: enemy.radius,
+        name: enemy.stats.name.toUpperCase(),
+        detail: isCombatShip(enemy.shipClass) ? enemy.mode.toUpperCase().replace('-', ' ') : 'NON-COMBAT · BONUS',
+        hostile: isCombatShip(enemy.shipClass),
+        hullPct: Math.max(0, Math.min(100, (enemy.hull / Math.max(1, enemy.stats.hull)) * 100)),
+        shieldPct: Math.max(0, Math.min(100, (enemy.shield / Math.max(1, enemy.stats.shield)) * 100)),
+      };
+    }
+    const boss = this.boss;
+    if (!boss || boss.defeated) return null;
+    const player = this.playerRoot.position;
+    const objective = pickBossObjective(boss.subsystems.map((sub) => ({ id: sub.id, type: sub.type, destroyed: sub.destroyed, distance: sub.worldCenter.distanceTo(player), sub })));
+    return {
+      ref,
+      position: objective ? objective.sub.worldCenter : this.gameplayCarrier.position,
+      velocity: new THREE.Vector3(),
+      radius: objective ? objective.sub.radius * this.gameplayCarrier.scale.x * 0.85 : 14 * this.gameplayCarrier.scale.x,
+      name: boss.name.toUpperCase(),
+      detail: objective ? objective.sub.name.toUpperCase() : 'CAPITAL SHIP',
+      hostile: true,
+      hullPct: (boss.hull / boss.maxHull) * 100,
+      shieldPct: (boss.shield / boss.maxShield) * 100,
+    };
+  }
+
+  private getTargetCandidates(): Array<{ ref: TargetRef; position: THREE.Vector3; distance: number; hostile: boolean }> {
+    const player = this.playerRoot.position;
+    const list: Array<{ ref: TargetRef; position: THREE.Vector3; distance: number; hostile: boolean }> = this.enemies.map((enemy) => ({
+      ref: { kind: 'enemy', id: enemy.id },
+      position: enemy.object.position,
+      distance: enemy.object.position.distanceTo(player),
+      hostile: isCombatShip(enemy.shipClass),
+    }));
+    if (this.boss && !this.boss.defeated) {
+      list.push({ ref: { kind: 'boss' }, position: this.gameplayCarrier.position, distance: this.gameplayCarrier.position.distanceTo(player), hostile: true });
+    }
+    return list.sort((a, b) => Number(b.hostile) - Number(a.hostile) || a.distance - b.distance);
+  }
+
+  private sameTarget(a: TargetRef | null, b: TargetRef | null): boolean {
+    if (!a || !b) return false;
+    return a.kind === b.kind && (a.kind === 'boss' || (b.kind === 'enemy' && a.id === b.id));
+  }
+
+  /** First press locks the hostile closest to your nose (or the nearest one); later presses cycle outward. */
+  cycleTarget(step = 1): void {
+    if (this.mode !== 'playing') return;
+    const list = this.getTargetCandidates();
+    if (list.length === 0) {
+      this.target = null;
+      this.flashAssistMessage('NO CONTACTS TO TARGET');
+      return;
+    }
+    const currentIndex = list.findIndex((entry) => this.sameTarget(entry.ref, this.target));
+    if (currentIndex === -1) {
+      const forward = getBasisVectors(this.playerRoot.quaternion).forward;
+      let best = list[0];
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const entry of list) {
+        const direction = entry.position.clone().sub(this.playerRoot.position).normalize();
+        const angle = Math.acos(clamp(forward.dot(direction), -1, 1));
+        const score = (entry.hostile ? 0 : 5) + (angle < 0.5 ? angle : 2 + angle) + entry.distance * 0.0006;
+        if (score < bestScore) {
+          bestScore = score;
+          best = entry;
+        }
+      }
+      this.target = best.ref;
+    } else {
+      this.target = list[(currentIndex + step + list.length) % list.length].ref;
+    }
+    const resolved = this.resolveTarget();
+    this.flashAssistMessage(resolved ? `TARGET LOCKED · ${resolved.name}` : 'TARGET LOST');
+  }
+
+  clearTarget(): void {
+    if (this.target) this.flashAssistMessage('TARGET CLEARED');
+    this.target = null;
+  }
+
+  /** Radar click: lock the given contact. */
+  setTarget(kind: 'enemy' | 'boss', id = 0): void {
+    if (this.mode !== 'playing') return;
+    const ref: TargetRef = kind === 'boss' ? { kind: 'boss' } : { kind: 'enemy', id };
+    if (!this.resolveTarget(ref)) return;
+    this.target = ref;
+    this.flashAssistMessage(`TARGET LOCKED · ${this.resolveTarget()?.name ?? ''}`);
+  }
+
+  private flashAssistMessage(text: string): void {
+    this.pickupMessage = text;
+    this.pickupMessageTimer = 2.2;
+    this.emitSnapshot(true);
+  }
+
+  /** Per-frame HUD guidance for the locked target: screen marker, off-screen arrow, lead pip and turn instructions. */
+  getTargetGuidance(): TargetGuidance | null {
+    const resolved = this.resolveTarget();
+    if (!resolved || this.mode !== 'playing') return null;
+    const player = this.playerRoot.position;
+    const rect = this.canvas.getBoundingClientRect();
+    const width = rect.width || this.canvas.clientWidth || 1;
+    const height = rect.height || this.canvas.clientHeight || 1;
+    const toTarget = resolved.position.clone().sub(player);
+    const distance = Math.max(0.001, toTarget.length());
+    const direction = toTarget.clone().multiplyScalar(1 / distance);
+    const project = (point: THREE.Vector3) => {
+      const cameraSpace = point.clone().applyMatrix4(this.camera.matrixWorldInverse);
+      const ndc = point.clone().project(this.camera);
+      const behind = cameraSpace.z > 0;
+      return { behind, cameraSpace, x: (ndc.x * 0.5 + 0.5) * width, y: (-ndc.y * 0.5 + 0.5) * height, ndcX: ndc.x, ndcY: ndc.y };
+    };
+    this.camera.updateMatrixWorld();
+    const screen = project(resolved.position);
+    const onScreen = !screen.behind && Math.abs(screen.ndcX) <= 0.94 && Math.abs(screen.ndcY) <= 0.92;
+    const edgeAngle = Math.atan2(screen.cameraSpace.y, screen.cameraSpace.x);
+    const cameraDistance = Math.max(1, resolved.position.distanceTo(this.camera.position));
+    const pxPerUnit = height / 2 / (Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) * cameraDistance);
+    const profile = FLIGHT_PROFILES[this.ship];
+    let lead: TargetGuidance['lead'] = null;
+    if (onScreen && resolved.hostile) {
+      const relative = resolved.velocity.clone().sub(this.playerVelocity.clone().multiplyScalar(0.32));
+      const solution = solveInterceptCourse(player, resolved.position, relative, profile.projectileSpeed);
+      const projected = project(solution.aimPoint);
+      if (!projected.behind) lead = { x: projected.x, y: projected.y };
+    }
+    const local = direction.clone().applyQuaternion(this.playerRoot.quaternion.clone().invert());
+    const bearing = bearingDegrees(local);
+    return {
+      kind: resolved.ref.kind,
+      name: resolved.name,
+      detail: resolved.detail,
+      hostile: resolved.hostile,
+      distance,
+      closing: this.playerVelocity.clone().sub(resolved.velocity).dot(direction),
+      hullPct: resolved.hullPct,
+      shieldPct: resolved.shieldPct,
+      onScreen,
+      x: screen.x,
+      y: screen.y,
+      boxPx: clamp(resolved.radius * 2 * pxPerUnit * 1.35, 36, 240),
+      edgeAngle,
+      lead,
+      instruction: describeBearing(bearing.yaw, bearing.pitch),
+      yawDeg: bearing.yaw,
+      pitchDeg: bearing.pitch,
+    };
+  }
+
+  // ---------------------------------------------------------------- autopilot / autocombat
+
+  setAutoMode(mode: AutoMode, reason?: string): void {
+    if (this.mode !== 'playing' && mode !== 'off') return;
+    const previous = this.autoMode;
+    this.autoMode = mode;
+    this.autoInput.yaw = 0;
+    this.autoInput.pitch = 0;
+    this.autoInput.roll = 0;
+    this.autoFire = false;
+    this.autoBoost = false;
+    this.pilotRetreating = false;
+    this.pilotBreakTimer = 0;
+    this.pilotTargetId = null;
+    this.manualMouseTravel = 0;
+    this.autoStatus = '';
+    if (previous !== mode && this.mode === 'playing') {
+      this.flashAssistMessage(
+        mode === 'off' ? reason ?? 'MANUAL CONTROL' : mode === 'autopilot' ? 'AUTOPILOT ENGAGED' : 'AUTOCOMBAT ENGAGED',
+      );
+    }
+    this.emitSnapshot(true);
+  }
+
+  toggleAutoMode(mode: Exclude<AutoMode, 'off'>): void {
+    this.setAutoMode(this.autoMode === mode ? 'off' : mode, 'MANUAL CONTROL');
+  }
+
+  getAutoMode(): AutoMode {
+    return this.autoMode;
+  }
+
+  private chooseSupplyObjective(): PilotObjective | null {
+    const stats = this.getCurrentShipStats();
+    let best: PickupEntity | null = null;
+    let bestDistance = 700;
+    for (const pickup of this.pickups) {
+      const useful =
+        pickup.type === 'energy' ? this.energy < MAX_ENERGY * 0.85
+        : pickup.type === 'shield' ? this.playerShield < stats.shield * 0.9
+        : pickup.type === 'hull' ? this.playerHull < stats.hull * 0.9
+        : this.getAvailableUpgradePickupTypes().includes(pickup.type);
+      if (!useful) continue;
+      const distance = pickup.object.position.distanceTo(this.playerRoot.position);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = pickup;
+      }
+    }
+    if (!best) return null;
+    return { kind: 'supply', position: best.object.position, velocity: new THREE.Vector3(), radius: best.radius, label: 'SUPPLY', hostile: false, standoff: 0 };
+  }
+
+  private buildPilotObjective(): PilotObjective | null {
+    const player = this.playerRoot.position;
+    const combat = this.autoMode === 'combat';
+    const toObjective = (resolved: ResolvedTarget, kind: PilotObjective['kind']): PilotObjective => ({
+      kind,
+      position: resolved.position,
+      velocity: resolved.velocity,
+      radius: resolved.radius,
+      label: resolved.ref.kind === 'boss' ? `${resolved.name} · ${resolved.detail}` : resolved.name,
+      hostile: resolved.hostile,
+      standoff: resolved.ref.kind === 'boss' ? 62 : 0,
+    });
+
+    if (combat && this.pilotRetreating) {
+      const supply = this.chooseSupplyObjective();
+      if (supply) return supply;
+      const threats = this.enemies.filter((enemy) => isCombatShip(enemy.shipClass));
+      const centroid = new THREE.Vector3();
+      threats.forEach((enemy) => centroid.add(enemy.object.position));
+      if (this.boss && !this.boss.defeated) centroid.add(this.gameplayCarrier.position);
+      const count = threats.length + (this.boss && !this.boss.defeated ? 1 : 0);
+      if (count > 0) {
+        centroid.multiplyScalar(1 / count);
+        const away = player.clone().sub(centroid).normalize();
+        return { kind: 'flee', position: player.clone().addScaledVector(away, 500), velocity: new THREE.Vector3(), radius: 0, label: 'OPEN SPACE', hostile: false, standoff: 0 };
+      }
+    }
+
+    const manual = this.resolveTarget();
+    if (manual) return toObjective(manual, 'target');
+
+    const forward = getBasisVectors(this.playerRoot.quaternion).forward;
+    // Prefer ships that need little turning: angle off the nose weighs about as much as range.
+    const nearestEnemy = (predicate: (enemy: EnemyEntity) => boolean, limit: number): EnemyEntity | null => {
+      let best: EnemyEntity | null = null;
+      let bestScore = Number.POSITIVE_INFINITY;
+      for (const enemy of this.enemies) {
+        if (!predicate(enemy)) continue;
+        const offset = enemy.object.position.clone().sub(player);
+        const distance = offset.length();
+        if (distance > limit) continue;
+        const angleDeg = THREE.MathUtils.radToDeg(Math.acos(clamp(forward.dot(offset.multiplyScalar(1 / Math.max(0.001, distance))), -1, 1)));
+        const score = distance * 0.35 + angleDeg * 1.3;
+        if (score < bestScore) {
+          bestScore = score;
+          best = enemy;
+        }
+      }
+      return best;
+    };
+    const bossAlive = this.boss && !this.boss.defeated;
+    // Keep a chosen hostile for a moment instead of flipping between equidistant ships.
+    if (this.pilotTargetId !== null && this.pilotTargetHold > 0) {
+      const held = this.enemies.find((enemy) => enemy.id === this.pilotTargetId);
+      if (held) return toObjective(this.resolveTarget({ kind: 'enemy', id: held.id })!, 'hostile');
+    }
+    const escort = nearestEnemy((enemy) => isCombatShip(enemy.shipClass), bossAlive ? 150 : 900);
+    if (escort) {
+      this.pilotTargetId = escort.id;
+      this.pilotTargetHold = 0.9;
+      return toObjective(this.resolveTarget({ kind: 'enemy', id: escort.id })!, 'hostile');
+    }
+    if (bossAlive) {
+      const resolved = this.resolveTarget({ kind: 'boss' });
+      if (resolved) return toObjective(resolved, 'boss');
+    }
+    const supply = this.chooseSupplyObjective();
+    if (combat) {
+      const bonus = nearestEnemy((enemy) => !isCombatShip(enemy.shipClass), 320);
+      if (bonus) return toObjective(this.resolveTarget({ kind: 'enemy', id: bonus.id })!, 'hostile');
+      if (supply) return supply;
+    } else if (supply) {
+      return supply;
+    }
+    if (player.distanceTo(this.waveAnchor) > 260) {
+      return { kind: 'anchor', position: this.waveAnchor, velocity: new THREE.Vector3(), radius: 0, label: 'BATTLE ZONE', hostile: false, standoff: 0 };
+    }
+    return null;
+  }
+
+  /** Evasion vector from every body whose predicted path intersects ours; the more imminent, the stronger. */
+  private computeEvasion(): THREE.Vector3 {
+    const total = new THREE.Vector3();
+    const player = this.playerRoot.position;
+    const velocity = this.playerVelocity;
+    const zero = new THREE.Vector3();
+    const consider = (center: THREE.Vector3, otherVelocity: THREE.Vector3, radius: number, horizon: number) => {
+      const threat = predictCollision(player, velocity, center, otherVelocity, radius + this.playerRadius, horizon);
+      if (threat.urgency > 0) total.addScaledVector(threat.escape, 0.6 + threat.urgency * 3);
+    };
+    for (const asteroid of this.asteroids) consider(asteroid.object.position, asteroid.velocity, asteroid.radius, 1.6);
+    for (const enemy of this.enemies) consider(enemy.object.position, enemy.velocity, enemy.radius, 1.1);
+    consider(this.planetCollisionSphere.center, zero, this.planetCollisionSphere.radius, 2.2);
+    const carrierSphere = this.carrierCollisionBounds.getBoundingSphere(new THREE.Sphere());
+    consider(carrierSphere.center.clone().applyMatrix4(this.gameplayCarrier.matrixWorld), zero, carrierSphere.radius * this.gameplayCarrier.scale.x * 0.92, 1.5);
+    return total;
+  }
+
+  private updateAutopilot(dt: number): void {
+    if (this.autoMode === 'off') {
+      this.autoFire = false;
+      this.autoBoost = false;
+      return;
+    }
+    const combat = this.autoMode === 'combat';
+    const stats = this.getCurrentShipStats();
+    const profile = FLIGHT_PROFILES[this.ship];
+    const player = this.playerRoot.position;
+    const basis = getBasisVectors(this.playerRoot.quaternion);
+    this.manualMouseTravel = Math.max(0, this.manualMouseTravel - dt * 500);
+    this.pilotTargetHold = Math.max(0, this.pilotTargetHold - dt);
+    this.pilotBreakTimer = Math.max(0, this.pilotBreakTimer - dt);
+    this.pilotJinkTimer -= dt;
+    if (this.pilotJinkTimer <= 0) {
+      this.pilotJinkTimer = this.randomRange(0.5, 1.3);
+      this.pilotJink.set(this.randomRange(-1, 1), this.randomRange(-1, 1));
+    }
+    const ratio = (this.playerHull + this.playerShield) / Math.max(1, stats.hull + stats.shield);
+    this.pilotRetreating = combat && this.damageEnabled ? nextRetreatState(ratio, this.pilotRetreating) : false;
+
+    const objective = this.buildPilotObjective();
+    let steer: THREE.Vector3 | null = null;
+    let fire = false;
+    let boostWanted = false;
+    let status = combat ? 'NO HOSTILES · HOLDING POSITION' : 'NO CONTACTS · HOLDING COURSE';
+
+    if (objective) {
+      const toObjective = objective.position.clone().sub(player);
+      const distance = Math.max(0.01, toObjective.length());
+      const direct = toObjective.clone().multiplyScalar(1 / distance);
+      const kmText = `${Math.round(distance)} KM`;
+      let aim = direct.clone();
+      if (objective.hostile && combat) {
+        const relative = objective.velocity.clone().sub(this.playerVelocity.clone().multiplyScalar(0.32));
+        aim = solveInterceptCourse(player, objective.position, relative, profile.projectileSpeed).direction.clone();
+      }
+      const closing = basis.forward.dot(direct) > 0.25;
+      if (objective.standoff > 0 && distance < objective.standoff && closing && this.pilotBreakTimer <= 0 && objective.kind !== 'supply') {
+        this.pilotBreakTimer = objective.kind === 'boss' ? this.randomRange(1.2, 1.9) : this.randomRange(0.45, 0.8);
+        this.pilotBreakSign = this.random() < 0.5 ? -1 : 1;
+      }
+      if (this.pilotBreakTimer > 0 && objective.kind !== 'supply') {
+        steer = breakoutDirection(toObjective, this.pilotBreakSign, 0.35);
+        status = `BREAKING OFF · ${objective.label}`;
+        boostWanted = false;
+      } else {
+        steer = aim.clone();
+        if (combat && objective.hostile) {
+          // Weave while closing from range, then track cleanly for the shot.
+          const amplitude = objective.kind === 'boss' ? 0.1 : distance > 190 ? 0.2 : 0;
+          steer.addScaledVector(basis.right, this.pilotJink.x * amplitude).addScaledVector(basis.up, this.pilotJink.y * amplitude).normalize();
+        }
+        const verb = objective.kind === 'supply' ? 'COLLECTING' : objective.kind === 'flee' ? 'RETREATING' : objective.kind === 'anchor' ? 'RETURNING TO' : combat && objective.hostile ? 'ENGAGING' : 'TRACKING';
+        status = `${this.pilotRetreating ? 'RETREATING · ' : ''}${verb} ${objective.label}${objective.kind === 'flee' ? '' : ` · ${kmText}`}`;
+        boostWanted = distance > 230 || (this.pilotRetreating && objective.kind === 'flee');
+        if (combat && objective.hostile) {
+          const cone = clamp(Math.atan2(Math.max(1, objective.radius) * 0.9, distance) + 0.035, 0.045, 0.13);
+          const alignment = Math.acos(clamp(basis.forward.dot(aim), -1, 1));
+          fire = alignment < cone && distance < profile.projectileRange * 0.85;
+        }
+      }
+      if (combat && !fire) {
+        // Opportunistic shots at anything already lined up in front of the guns.
+        for (const enemy of this.enemies) {
+          const toEnemy = enemy.object.position.clone().sub(player);
+          const range = toEnemy.length();
+          if (range < profile.projectileRange * 0.7 && basis.forward.dot(toEnemy.multiplyScalar(1 / range)) > Math.cos(0.05 + enemy.radius / Math.max(40, range))) {
+            fire = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (steer) {
+      if (this.collisionsEnabled) {
+        const evasion = this.computeEvasion();
+        if (evasion.lengthSq() > 1e-4) {
+          // A real collision course overrides the attack: weight evasion above the aim direction.
+          steer = steer.clone().multiplyScalar(0.35).add(evasion.multiplyScalar(1.4)).normalize();
+          if (this.autoMode === 'combat') status = `EVADING · ${status}`;
+        }
+      }
+      const local = steer.clone().applyQuaternion(this.playerRoot.quaternion.clone().invert());
+      const input = steeringInputs(local);
+      this.autoInput.yaw = input.yaw;
+      this.autoInput.pitch = input.pitch;
+      // Level the wings once the turn is mostly done so the view stays readable.
+      this.autoInput.roll = rollLevelInput(basis.right) * (Math.abs(input.yaw) < 0.6 && Math.abs(input.pitch) < 0.6 ? 1 : 0.35);
+    } else {
+      this.autoInput.yaw = 0;
+      this.autoInput.pitch = 0;
+      this.autoInput.roll = rollLevelInput(basis.right);
+    }
+
+    if (boostWanted && this.energy > 55) this.autoBoost = true;
+    if (!boostWanted || this.energy < 14) this.autoBoost = false;
+    this.autoFire = fire;
+    this.autoStatus = status;
+  }
+
   private updatePlayerMovement(dt: number, stats: ShipDefinition): void {
     const profile = FLIGHT_PROFILES[this.ship];
+    if (this.autoMode !== 'off') {
+      this.playerRoot.quaternion.copy(
+        applyOrientationInput(this.playerRoot.quaternion, { yaw: this.autoInput.yaw, pitch: this.autoInput.pitch, roll: this.autoInput.roll }, profile, dt),
+      );
+      this.moveAfterSteering(dt, profile, stats);
+      return;
+    }
     const captured = this.isMouseCaptureActive();
     const cursorGain = clamp(this.mouseSensitivity * UNLOCKED_CURSOR_GAIN_PER_X, 0.5, 8);
     const pointerTarget = captured
@@ -1454,7 +1963,11 @@ export class SpaceGame {
       applyOrientationInput(this.playerRoot.quaternion, { yaw: yawInput, pitch: pitchInput, roll: rollInput }, profile, dt),
     );
 
-    this.currentSpeed = getForwardSpeed(stats.speed, this.boostHeld, this.energy);
+    this.moveAfterSteering(dt, profile, stats);
+  }
+
+  private moveAfterSteering(dt: number, profile: FlightProfile, stats: ShipDefinition): void {
+    this.currentSpeed = getForwardSpeed(stats.speed, this.isBoosting(), this.energy);
     const motion = integrateFlightMotion(
       this.playerRoot.position,
       this.playerVelocity,
@@ -3235,7 +3748,7 @@ export class SpaceGame {
     const distance = this.getNearestEnemyDistance(true);
     const bonusText = bonuses > 0 ? ` / ${bonuses} fleeing bonus target${bonuses === 1 ? '' : 's'}` : '';
     return distance !== undefined
-      ? `Wave ${this.wave} engaged — ${tracked} combat threat${tracked === 1 ? '' : 's'}${bonusText} / nearest ${Math.round(distance)}m`
+      ? `Wave ${this.wave} engaged — ${tracked} combat threat${tracked === 1 ? '' : 's'}${bonusText} / nearest ${formatSpaceDistance(distance)}`
       : `Wave ${this.wave} engaged — ${tracked} combat threat${tracked === 1 ? '' : 's'}${bonusText}`;
   }
 
@@ -3294,6 +3807,12 @@ export class SpaceGame {
       captureActive: this.isMouseCaptureActive(),
       difficulty: this.difficulty,
       summary: this.buildSummary(),
+      autoMode: this.autoMode,
+      autoStatus: this.autoStatus,
+      target: (() => {
+        const resolved = this.resolveTarget();
+        return resolved ? { name: resolved.name, detail: resolved.detail, distance: resolved.position.distanceTo(this.playerRoot.position) } : null;
+      })(),
       boss: this.boss
         ? {
             name: this.boss.name,
@@ -3346,6 +3865,11 @@ export class SpaceGame {
     this.releaseContinuousInput();
     this.audio.setEngine(false, 0, false);
     this.audio.setBossDrone(false, 0);
+    this.autoMode = 'off';
+    this.autoFire = false;
+    this.autoBoost = false;
+    this.autoStatus = '';
+    this.target = null;
     if (result === 'defeat') {
       this.spawnBlast(this.playerRoot.position, {
         radius: this.playerRadius * 1.5,
