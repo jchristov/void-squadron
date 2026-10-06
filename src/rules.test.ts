@@ -7,6 +7,11 @@ import {
   DIFFICULTIES,
   MAX_WAVE,
   PICKUP_TYPES,
+  getMaxConcurrentCombat,
+  SHIP_MODEL_SCALE,
+  SHIP_TARGET_RADIUS,
+  canUseCombatPickup,
+  absorbWithOvershield,
   PICKUP_WORLD_CAP,
   SHIPS,
   SHIP_CLASSES,
@@ -36,11 +41,36 @@ test('ship roster exposes all six selectable classes with distinct behaviors', (
   assert.deepEqual([...SHIP_CLASSES], ['fighter', 'interceptor', 'bomber', 'shuttle', 'freighter', 'destroyer']);
   assert.ok(SHIPS.interceptor.speed > SHIPS.fighter.speed);
   assert.ok(SHIPS.bomber.damage > SHIPS.interceptor.damage);
-  assert.ok(SHIPS.destroyer.hull > SHIPS.freighter.hull);
   assert.ok(SHIPS.shuttle.shield > SHIPS.fighter.shield);
   assert.ok(SHIPS.freighter.armor > SHIPS.shuttle.armor);
   assert.equal(isCombatShip('shuttle'), false);
   assert.equal(isCombatShip('fighter'), true);
+});
+
+test('freighter is the slow, lightly armed, heavily plated hauler', () => {
+  const others = SHIP_CLASSES.filter((ship) => ship !== 'freighter');
+  const dps = (ship: (typeof SHIP_CLASSES)[number]) => SHIPS[ship].damage / SHIPS[ship].fireInterval;
+  for (const ship of others) {
+    assert.ok(SHIPS.freighter.hull > SHIPS[ship].hull, `hull vs ${ship}`);
+    assert.ok(SHIPS.freighter.armor > SHIPS[ship].armor, `armor vs ${ship}`);
+    assert.ok(SHIPS.freighter.speed < SHIPS[ship].speed, `speed vs ${ship}`);
+    assert.ok(dps('freighter') < dps(ship), `firepower vs ${ship}`);
+  }
+});
+
+test('spacecraft sizes grow strictly in hangar order and models scale to match', () => {
+  const radii = SHIP_CLASSES.map((ship) => SHIP_TARGET_RADIUS[ship]);
+  for (let index = 1; index < radii.length; index += 1) assert.ok(radii[index] > radii[index - 1], `${SHIP_CLASSES[index]} larger than ${SHIP_CLASSES[index - 1]}`);
+  for (const ship of SHIP_CLASSES) assert.ok(SHIP_MODEL_SCALE[ship] > 0.5 && SHIP_MODEL_SCALE[ship] < 2);
+});
+
+test('torpedo magazines are reserved for some craft and gate the torpedo pickup', () => {
+  assert.ok(SHIPS.fighter.torpedoes > 0 && SHIPS.bomber.torpedoes > SHIPS.fighter.torpedoes && SHIPS.destroyer.torpedoes > 0);
+  assert.equal(SHIPS.interceptor.torpedoes, 0);
+  assert.equal(canUseCombatPickup('torpedo', SHIPS.interceptor), false);
+  assert.equal(canUseCombatPickup('torpedo', SHIPS.bomber), true);
+  assert.equal(canUseCombatPickup('overcharge', SHIPS.interceptor), true);
+  assert.equal(canUseCombatPickup('energy', SHIPS.bomber), false);
 });
 
 test('damage is absorbed by shields before armor reduces hull damage', () => {
@@ -86,14 +116,14 @@ test('wave configuration separates combat threats from optional fleeing targets'
   const finalWave = getWaveConfig(MAX_WAVE);
 
   assert.equal(MAX_WAVE, 5);
-  assert.equal(wave1.enemies, 6);
-  assert.equal(wave1.combatEnemies, 6);
+  assert.equal(wave1.enemies, 4);
+  assert.equal(wave1.combatEnemies, 4);
   assert.ok(wave2.bonusTargets > 0);
   assert.ok(wave4.enemies > wave1.enemies);
   assert.ok(finalWave.eliteCount > wave4.eliteCount);
   assert.ok(finalWave.classes.includes('destroyer'));
   assert.equal(getEnemyShipClass(2, wave2.enemies - 1), 'shuttle');
-  assert.equal(getWaveCombatCount(2), 6);
+  assert.equal(getWaveCombatCount(2), 4);
   assert.equal(isVictoryWave(MAX_WAVE - 1), false);
   assert.equal(isVictoryWave(MAX_WAVE), true);
 });
@@ -137,7 +167,7 @@ test('difficulty tuning orders enemy pressure and recovery generosity predictabl
 });
 
 test('pickup roster preserves recovery items and adds separate upgrade drops', () => {
-  assert.deepEqual([...PICKUP_TYPES], ['energy', 'shield', 'hull', 'hull-upgrade', 'defense-upgrade', 'attack-upgrade']);
+  assert.deepEqual([...PICKUP_TYPES], ['energy', 'shield', 'hull', 'hull-upgrade', 'defense-upgrade', 'attack-upgrade', 'torpedo', 'overcharge', 'aegis']);
 });
 
 test('pickup helpers respect player caps and world spawn caps', () => {
@@ -202,4 +232,45 @@ test('player damage policy can preserve hull and shields without blocking enemy 
   assert.deepEqual(resolvePlayerDamageState(current, next, true), { shield: next.shield, hull: next.hull });
   assert.deepEqual(resolvePlayerDamageState(current, next, false), current);
   assert.ok(next.effectiveDamage > 0);
+});
+
+test('overshield soaks shield damage first, then hull, and reports what is left', () => {
+  const hit = applyDamage({ shield: 30, hull: 100 }, 80, 0.25);
+  assert.equal(hit.shieldLoss, 30);
+  const partial = absorbWithOvershield(hit, 20);
+  assert.equal(partial.absorbed, 20);
+  assert.equal(partial.remaining, 0);
+  assert.equal(partial.result.shieldLoss, 10);
+  assert.equal(partial.result.hullLoss, hit.hullLoss);
+  assert.equal(partial.result.shield, 20);
+  const full = absorbWithOvershield(hit, 500);
+  assert.equal(full.result.shieldLoss + full.result.hullLoss, 0);
+  assert.equal(full.result.hull, 100);
+  assert.equal(full.remaining, 500 - hit.shieldLoss - hit.hullLoss);
+  assert.equal(full.result.destroyed, false);
+  assert.equal(absorbWithOvershield(hit, 0).result, hit);
+});
+
+test('overshield can save a lethal hit', () => {
+  const lethal = applyDamage({ shield: 0, hull: 10 }, 60, 0);
+  assert.equal(lethal.destroyed, true);
+  const saved = absorbWithOvershield(lethal, 90);
+  assert.equal(saved.result.destroyed, false);
+  assert.equal(saved.result.hull, 10);
+});
+
+test('early waves cap simultaneous hostiles and the cap grows with the wave and difficulty', () => {
+  assert.equal(getMaxConcurrentCombat(1), 2);
+  assert.ok(getMaxConcurrentCombat(1) < getMaxConcurrentCombat(2) && getMaxConcurrentCombat(2) < getMaxConcurrentCombat(4));
+  assert.ok(getMaxConcurrentCombat(1, 'relaxed') <= getMaxConcurrentCombat(1, 'standard'));
+  assert.ok(getMaxConcurrentCombat(3, 'veteran') > getMaxConcurrentCombat(3, 'standard'));
+  assert.equal(getMaxConcurrentCombat(1, 'relaxed'), 1);
+});
+
+test('wave 1 opens gently: the first wave has far weaker enemy fire than the last', () => {
+  const early = getEnemyAttackTuning('fighter', 1);
+  const late = getEnemyAttackTuning('fighter', MAX_WAVE);
+  assert.ok(early.damageMultiplier < late.damageMultiplier * 0.62);
+  assert.ok(early.accuracy < late.accuracy * 0.75);
+  assert.ok(early.cooldownMultiplier > late.cooldownMultiplier * 1.4);
 });

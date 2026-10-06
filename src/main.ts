@@ -1,7 +1,7 @@
 import './style.css';
 import { SpaceGame, type GameSnapshot } from './game';
-import { SHIPS, PICKUP_LABELS, PICKUP_TYPES, isUpgradePickup, pickupCssColor, type PickupType, type ShipClass } from './rules';
-import { relativeRadarPosition, projectRadarContact } from './radar';
+import { SHIPS, PICKUP_LABELS, PICKUP_TYPES, isCombatPickup, isUpgradePickup, pickupCssColor, type PickupType, type ShipClass } from './rules';
+import { relativeRadarPosition, projectRadarContact, radarRingDistance } from './radar';
 import { formatSpaceDistance } from './units';
 import { formatDuration, getMissionRank } from './summary';
 import { loadRecords, saveRecords, updateRecords, type RecordUpdate } from './records';
@@ -106,8 +106,8 @@ app.innerHTML = `
       <button id="assist-combat" class="assist-btn" tabindex="-1" aria-label="Toggle autocombat (C)"><kbd>C</kbd><span>AUTOCOMBAT</span><small id="assist-combat-info"></small></button>
     </div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
-    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
-    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET</div></aside>
+    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div><div class="ordnance" id="ordnance"><div class="orow torp" id="orow-torp"><span>TORPEDOES</span><div class="torp-pips" id="torp-pips"></div><kbd>X</kbd></div><div class="orow oc hidden" id="orow-oc"><span>OVERCHARGE</span><div class="meter"><i id="oc-bar"></i></div><b id="oc-time"></b></div><div class="orow ae hidden" id="orow-ae"><span>AEGIS</span><div class="meter"><i id="ae-bar"></i></div><b id="ae-val"></b></div></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>X</kbd> / R-CLICK · TORPEDO</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
+    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div id="radar-supply" class="radar-supply" role="status"></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t) && !isCombatPickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-legend supplies combat">${PICKUP_TYPES.filter(isCombatPickup).map(t => `<span style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">⬢ ${t === 'torpedo' ? 'TORPEDO' : t.toUpperCase()}</span>`).join('')}</div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET · RINGS SHOW KM</div></aside>
     <div id="recovery-status" class="recovery-status" role="status" aria-live="polite"></div>
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
@@ -186,6 +186,7 @@ function launch() {
   game?.start(selected);
 }
 type RadarContact = { position: { x: number; y: number; z: number }; kind: 'hostile' | 'neutral' | 'pickup' | 'boss' | 'system'; pickup?: PickupType; enemyId?: number };
+const RADAR_CURVE = 0.62;
 let radarHits: { x: number; y: number; kind: 'enemy' | 'boss'; id: number }[] = [];
 function drawRadar() {
   if (!game) return;
@@ -198,8 +199,11 @@ function drawRadar() {
   ctx.strokeStyle = '#83e5e730'; ctx.lineWidth = 1;
   for (const scale of [0.33, 0.66, 1]) { ctx.beginPath(); ctx.arc(center, center, radius * scale, 0, Math.PI * 2); ctx.stroke(); }
   ctx.beginPath(); ctx.moveTo(center - radius, center); ctx.lineTo(center + radius, center); ctx.moveTo(center, center - radius); ctx.lineTo(center, center + radius); ctx.stroke();
+  ctx.font = '15px monospace'; ctx.fillStyle = '#83e5e777'; ctx.textAlign = 'left';
+  for (const scale of [0.33, 0.66]) ctx.fillText(String(Math.round(radarRingDistance(scale, radarRange, RADAR_CURVE) / 10) * 10), center + 4, center - radius * scale - 3);
   ctx.fillStyle = '#83e5e7'; ctx.beginPath(); ctx.moveTo(center, center - 9); ctx.lineTo(center + 5, center + 6); ctx.lineTo(center - 5, center + 6); ctx.closePath(); ctx.fill();
-  let nearest = Infinity;
+  let nearest = Infinity, nearestSupply = Infinity;
+  let nearestSupplyType: PickupType | undefined;
   radarHits = [];
   const contacts: RadarContact[] = telemetry.enemies.map(enemy => ({ position: enemy.position, enemyId: enemy.id, kind: enemy.ship === 'shuttle' || enemy.ship === 'freighter' ? 'neutral' : 'hostile' }));
   const bossTelemetry = telemetry.boss && !telemetry.boss.defeated ? telemetry.boss : null;
@@ -211,7 +215,7 @@ function drawRadar() {
   const target = telemetry.target;
   for (const contact of contacts) {
     const local = relativeRadarPosition(contact.position, telemetry.player.position, telemetry.player.orientation);
-    const projected = projectRadarContact(local, radarRange);
+    const projected = projectRadarContact(local, radarRange, RADAR_CURVE);
     if (contact.kind === 'hostile' || contact.kind === 'boss') nearest = Math.min(nearest, projected.distance);
     const x = center + projected.x * radius, y = center + projected.y * radius;
     ctx.globalAlpha = projected.edge ? .7 : 1;
@@ -219,17 +223,27 @@ function drawRadar() {
     ctx.lineWidth = 2;
     if (contact.kind === 'pickup' && contact.pickup) {
       const color = pickupCssColor(contact.pickup);
+      const upgrade = isUpgradePickup(contact.pickup), combat = isCombatPickup(contact.pickup);
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260 + x * 0.13);
       ctx.strokeStyle = ctx.fillStyle = color;
-      ctx.shadowColor = color; ctx.shadowBlur = isUpgradePickup(contact.pickup) ? 9 : 5;
+      // Canvas is shown at roughly half size, so markers are drawn about twice as large as they appear.
+      ctx.globalAlpha = 0.25 + 0.4 * pulse; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 13 + 6 * pulse, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = projected.edge ? .85 : 1;
+      ctx.shadowColor = color; ctx.shadowBlur = 14;
+      ctx.lineWidth = 3.4;
       ctx.beginPath();
-      if (isUpgradePickup(contact.pickup)) {
-        // Upgrades: a ringed diamond with a plus, bigger than ordinary supplies.
-        ctx.lineWidth = 2; ctx.moveTo(x, y - 8); ctx.lineTo(x + 8, y); ctx.lineTo(x, y + 8); ctx.lineTo(x - 8, y); ctx.closePath(); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x - 3.5, y); ctx.lineTo(x + 3.5, y); ctx.moveTo(x, y - 3.5); ctx.lineTo(x, y + 3.5); ctx.stroke();
+      if (combat) {
+        for (let index = 0; index < 6; index += 1) { const angle = Math.PI / 6 + index * Math.PI / 3; const px = x + Math.cos(angle) * 10, py = y + Math.sin(angle) * 10; if (index === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); }
+        ctx.closePath(); ctx.fill();
+      } else if (upgrade) {
+        ctx.moveTo(x, y - 12); ctx.lineTo(x + 12, y); ctx.lineTo(x, y + 12); ctx.lineTo(x - 12, y); ctx.closePath(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y); ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5); ctx.stroke();
       } else {
-        ctx.lineWidth = 2.6; ctx.moveTo(x - 4.5, y); ctx.lineTo(x + 4.5, y); ctx.moveTo(x, y - 4.5); ctx.lineTo(x, y + 4.5); ctx.stroke();
+        ctx.lineWidth = 4.2; ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y); ctx.moveTo(x, y - 8); ctx.lineTo(x, y + 8); ctx.stroke();
       }
       ctx.shadowBlur = 0;
+      const supplyDistance = projected.distance;
+      if (supplyDistance < nearestSupply) { nearestSupply = supplyDistance; nearestSupplyType = contact.pickup; }
       continue;
     }
     ctx.strokeStyle = ctx.fillStyle = contact.kind === 'hostile' ? '#ff776c' : contact.kind === 'neutral' ? '#ffbf69' : '#ff4fa3';
@@ -250,6 +264,9 @@ function drawRadar() {
   }
   ctx.globalAlpha = 1;
   text('radar-range', Number.isFinite(nearest) ? `NEAREST HOSTILE ${formatSpaceDistance(nearest)}` : 'NO COMBAT CONTACTS');
+  const supplyEl = el('radar-supply');
+  if (nearestSupplyType) { supplyEl.style.color = pickupCssColor(nearestSupplyType); text('radar-supply', `NEAREST ${PICKUP_LABELS[nearestSupplyType]} · ${formatSpaceDistance(nearestSupply)}`); }
+  else { supplyEl.style.color = ''; text('radar-supply', 'NO SUPPLIES IN RANGE'); }
 }
 el('radar').addEventListener('click', event => {
   const canvas = el('radar') as HTMLCanvasElement;
@@ -322,6 +339,17 @@ function update(state: GameSnapshot) {
   text('capture-indicator', state.captureActive ? `M · MOUSE CAPTURED · ${mouseSensitivity.toFixed(1)}×` : `M · MOUSE FREE · ${mouseSensitivity.toFixed(1)}×`);
   el('capture-indicator').classList.toggle('captured', Boolean(state.captureActive));
   el('settings-open').setAttribute('title', `${state.difficulty || difficulty} difficulty · mouse ${state.captureActive ? 'captured' : 'free'}`);
+  const torpCap = state.torpedoCapacity ?? 0;
+  el('orow-torp').classList.toggle('hidden', torpCap === 0);
+  if (torpCap > 0) {
+    const pips = `${'<i class="on"></i>'.repeat(state.torpedoes ?? 0)}${'<i></i>'.repeat(Math.max(0, torpCap - (state.torpedoes ?? 0)))}`;
+    if (el('torp-pips').innerHTML !== pips) el('torp-pips').innerHTML = pips;
+    el('orow-torp').classList.toggle('empty', (state.torpedoes ?? 0) === 0);
+  }
+  el('orow-oc').classList.toggle('hidden', !(state.overcharge && state.overcharge > 0));
+  if (state.overcharge) { el('oc-bar').style.width = `${Math.min(100, state.overcharge / 12 * 100)}%`; text('oc-time', `${state.overcharge.toFixed(1)}s`); }
+  el('orow-ae').classList.toggle('hidden', !(state.aegis && state.aegis > 0));
+  if (state.aegis) { el('ae-bar').style.width = `${Math.min(100, state.aegis / 144 * 100)}%`; text('ae-val', String(state.aegis)); }
   const auto = state.autoMode ?? 'off';
   el('assist-auto').classList.toggle('active', auto === 'autopilot'); el('assist-combat').classList.toggle('active', auto === 'combat');
   text('assist-auto-info', auto === 'autopilot' ? state.autoStatus ?? '' : ''); text('assist-combat-info', auto === 'combat' ? state.autoStatus ?? '' : '');

@@ -346,3 +346,18 @@ body[data-mode="menu"] .screen-vignette{background:linear-gradient(90deg,rgba(4,
 .radar-panel canvas{pointer-events:auto;cursor:crosshair}
 @media(max-width:900px){.assist-btn small{display:none}.assist-bar{top:74px;flex-wrap:wrap;justify-content:center}.assist-btn{padding:6px 8px;font-size:9px}}
 @media(max-height:700px) and (min-width:641px){.assist-bar{top:70px}.assist-btn{padding:5px 9px}}
+
+/* ===== Ordnance, combat powerups and radar supply readout ===== */
+.ordnance{display:grid;gap:7px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line);font-family:'SFMono-Regular',Consolas,monospace}
+.orow{display:flex;align-items:center;gap:10px;font-size:10px;letter-spacing:1px;color:#8aa4b3}.orow>span{width:82px}.orow .meter{flex:1;height:6px}.orow b{font-weight:500;width:42px;text-align:right;color:#e7eced}
+.orow kbd{margin-left:auto;padding:1px 5px;font-size:9px}
+.torp-pips{display:flex;gap:4px;flex-wrap:wrap}.torp-pips i{width:10px;height:15px;border:1px solid #ff3b3b66;clip-path:polygon(50% 0,100% 28%,100% 100%,0 100%,0 28%)}.torp-pips i.on{background:#ff3b3b;border-color:#ff9a9a;box-shadow:0 0 8px #ff3b3b88}
+.orow.empty>span{color:#ff6b6b;animation:bossblink 1s steps(2) infinite}
+.orow.oc .meter i{background:#ff2bd6;box-shadow:0 0 10px #ff2bd677}.orow.oc>span{color:#ff7ae9}.orow.ae .meter i{background:#eaf6ff;box-shadow:0 0 10px #eaf6ff77}.orow.ae>span{color:#eaf6ff}
+.radar-supply{margin-top:5px;font:8px Consolas,monospace;letter-spacing:.8px;text-align:center;color:#6f8b99;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.radar-legend.combat{margin-top:3px;justify-content:flex-start;gap:3px 9px}
+@media(max-width:640px){.orow>span{width:60px}.orow{font-size:8px}}
+/* Ordnance makes the systems card taller; keep the upgrades card clear of it */
+.upgrade-panel{bottom:290px}
+@media(max-height:700px) and (min-width:641px){.upgrade-panel{bottom:262px}}
+@media(max-width:640px){.upgrade-panel{bottom:262px}}

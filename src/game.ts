@@ -40,6 +40,14 @@ import {
   COMBO_WINDOW,
   MAX_ENERGY,
   PICKUP_COLORS,
+  AEGIS,
+  OVERCHARGE,
+  SHIP_MODEL_SCALE,
+  TORPEDO,
+  absorbWithOvershield,
+  canUseCombatPickup,
+  isCombatPickup,
+  isUpgradePickup,
   PICKUP_LIFETIME_SECONDS,
   PICKUP_WORLD_CAP,
   SHIPS,
@@ -50,6 +58,7 @@ import {
   getComboAfterKill,
   getEnemyAttackTuning,
   getForwardSpeed,
+  getMaxConcurrentCombat,
   getKillScore,
   getPickupSpawnAllowance,
   getWaveConfig,
@@ -140,6 +149,10 @@ export interface GameSnapshot {
   summary?: MissionSummary;
   autoMode?: AutoMode;
   autoStatus?: string;
+  torpedoes?: number;
+  torpedoCapacity?: number;
+  overcharge?: number;
+  aegis?: number;
   target?: { name: string; detail: string; distance: number } | null;
   boss?: {
     name: string;
@@ -344,6 +357,7 @@ export interface TargetGuidance {
 }
 
 interface ResolvedTarget {
+  heavy: boolean;
   ref: TargetRef;
   position: THREE.Vector3;
   velocity: THREE.Vector3;
@@ -355,7 +369,19 @@ interface ResolvedTarget {
   shieldPct: number;
 }
 
+interface TorpedoEntity {
+  id: number;
+  object: THREE.Group;
+  velocity: THREE.Vector3;
+  previousPosition: THREE.Vector3;
+  target: TargetRef | null;
+  age: number;
+  trailTimer: number;
+  damage: number;
+}
+
 interface PilotObjective {
+  heavy: boolean;
   kind: 'target' | 'hostile' | 'boss' | 'supply' | 'flee' | 'anchor' | 'hold';
   position: THREE.Vector3;
   velocity: THREE.Vector3;
@@ -402,7 +428,7 @@ interface MotionStars {
 }
 
 const SNAPSHOT_INTERVAL = 0.1;
-const COLLISION_COOLDOWN = 0.35;
+const COLLISION_COOLDOWN = 0.85;
 const WAVE_CLEAR_DELAY = 2.9;
 const MENU_MESSAGE = 'Select a ship and launch into the fleet corridor.';
 const EPSILON = 0.0001;
@@ -416,6 +442,9 @@ const ASTEROID_SAFE_DISTANCE = 110;
 const PICKUP_SPARKLE_DISTANCE = 1.4;
 const DEBUG_COLLISION_OPACITY = 0.16;
 const LASER_UP_VECTOR = new THREE.Vector3(0, 0, 1);
+/** Hull radii before per-class scaling; the chase camera is tuned around these. */
+const LEGACY_SHIP_RADIUS: Record<ShipClass, number> = { fighter: 4.45, interceptor: 4.27, bomber: 5.46, shuttle: 4.49, freighter: 5.94, destroyer: 7.89 };
+const PICKUP_LABELS_SHORT: Record<PickupType, string> = { energy: 'ENERGY', shield: 'SHIELD', hull: 'HULL REPAIR', 'hull-upgrade': 'HULL UPGRADE', 'defense-upgrade': 'DEFENSE UPGRADE', 'attack-upgrade': 'ATTACK UPGRADE', torpedo: 'TORPEDOES', overcharge: 'OVERCHARGE', aegis: 'AEGIS' };
 const POINTER_CAPTURE_SENSITIVITY = 2.25;
 // Free-cursor steering shares the sensitivity setting: at the 5x default, reaching full turn rate takes about a third of the half-screen deflection.
 const UNLOCKED_CURSOR_GAIN_PER_X = 0.6;
@@ -492,7 +521,7 @@ function createPickupModel(type: PickupType): THREE.Group {
   const solid = new THREE.MeshStandardMaterial({ color: type.endsWith('upgrade') ? 0xfff5fb : 0xf5fbff, emissive: color, emissiveIntensity: 1.45, roughness: 0.22, metalness: 0.18 });
 
   const core = new THREE.Mesh(type.endsWith('upgrade') ? new THREE.IcosahedronGeometry(0.72, 0) : new THREE.OctahedronGeometry(0.85, 0), solid);
-  group.add(core);
+  if (type !== 'torpedo' && type !== 'overcharge' && type !== 'aegis') group.add(core);
 
   if (type === 'energy') {
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.08, 10, 28), glow);
@@ -536,6 +565,42 @@ function createPickupModel(type: PickupType): THREE.Group {
     const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.2, 1.2, 6), solid);
     cap.rotation.z = Math.PI / 2;
     group.add(innerShield, outerRing, sideRing, cap);
+  } else if (type === 'torpedo') {
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.1, 4, 10), solid);
+    body.rotation.z = Math.PI / 2;
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.55, 10), solid);
+    tip.rotation.z = -Math.PI / 2;
+    tip.position.x = 0.95;
+    for (const angle of [0, Math.PI / 2, Math.PI, Math.PI * 1.5]) {
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.4), solid);
+      fin.position.set(-0.5, Math.sin(angle) * 0.38, Math.cos(angle) * 0.38);
+      fin.rotation.x = angle;
+      group.add(fin);
+    }
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.07, 10, 30), glow);
+    halo.rotation.y = Math.PI / 2;
+    group.add(body, tip, halo);
+  } else if (type === 'overcharge') {
+    const zig = [[-0.2, 0.9], [0.25, 0.35], [-0.12, 0.3], [0.3, -0.35], [-0.05, -0.3], [0.1, -0.95]];
+    for (let index = 0; index < zig.length - 1; index += 1) {
+      const [x1, y1] = zig[index];
+      const [x2, y2] = zig[index + 1];
+      const length = Math.hypot(x2 - x1, y2 - y1);
+      const bolt = new THREE.Mesh(new THREE.BoxGeometry(0.2, length + 0.1, 0.2), solid);
+      bolt.position.set((x1 + x2) / 2, (y1 + y2) / 2, 0);
+      bolt.rotation.z = -Math.atan2(x2 - x1, y2 - y1);
+      group.add(bolt);
+    }
+    const halo = new THREE.Mesh(new THREE.TorusGeometry(1.08, 0.08, 10, 30), glow);
+    halo.rotation.x = Math.PI / 2;
+    group.add(halo);
+  } else if (type === 'aegis') {
+    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(0.95, 1), new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity: 0.85 }));
+    const heart = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 14), solid);
+    const ringA = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.06, 10, 32), glow);
+    const ringB = ringA.clone();
+    ringB.rotation.y = Math.PI / 2;
+    group.add(shell, heart, ringA, ringB);
   } else {
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.18, 1.65, 6), solid);
     barrel.rotation.z = Math.PI / 2;
@@ -598,7 +663,7 @@ export class SpaceGame {
   private readonly effectLayer = new THREE.Group();
   private readonly pickupLayer = new THREE.Group();
   private readonly playerRoot = new THREE.Group();
-  private menuHero = createShipModel('fighter', { accent: 0xb6c8ff, scale: 1.55, tint: 0x8a97aa });
+  private menuHero = createShipModel('fighter', { accent: 0xb6c8ff, scale: SHIP_MODEL_SCALE.fighter * 1.25, tint: 0x8a97aa });
   private readonly menuCarrier = createCapitalCarrier();
   private readonly gameplayCarrier = createCapitalCarrier();
   private readonly menuEscorts: THREE.Group[] = [];
@@ -681,6 +746,12 @@ export class SpaceGame {
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
   private bossVictoryTimer = 0;
+  private torpedoes = 0;
+  private torpedoCooldown = 0;
+  private torpedoList: TorpedoEntity[] = [];
+  private torpedoId = 0;
+  private overchargeTimer = 0;
+  private aegisPoints = 0;
   private target: TargetRef | null = null;
   private autoMode: AutoMode = 'off';
   private autoStatus = '';
@@ -752,7 +823,16 @@ export class SpaceGame {
     this.wheelRollInput = clamp(this.wheelRollInput + event.deltaY * 0.0024, -1.4, 1.4);
   };
 
+  private readonly onContextMenu = (event: Event): void => {
+    event.preventDefault();
+  };
+
   private readonly onPointerDown = (event: MouseEvent): void => {
+    if (this.mode === 'playing' && event.button === 2) {
+      event.preventDefault();
+      this.fireTorpedo();
+      return;
+    }
     if (this.mode !== 'playing' || event.button !== 0) {
       return;
     }
@@ -774,6 +854,10 @@ export class SpaceGame {
     if (playInput && event.code === 'Space') {
       event.preventDefault();
       this.fireHeld = true;
+    }
+    if (playInput && event.code === 'KeyX' && !event.repeat) {
+      event.preventDefault();
+      this.fireTorpedo();
     }
     if (!playInput) {
       return;
@@ -917,7 +1001,7 @@ export class SpaceGame {
   previewShip(ship: ShipClass): void {
     if (this.mode !== 'menu') return;
     const previous = this.menuHero;
-    const next = createShipModel(ship, { accent: 0x8be3ff, scale: ship === 'destroyer' ? 1.05 : 1.55, tint: 0x8a97aa });
+    const next = createShipModel(ship, { accent: 0x8be3ff, scale: SHIP_MODEL_SCALE[ship] * 1.25, tint: 0x8a97aa });
     next.position.copy(previous.position);
     next.rotation.copy(previous.rotation);
     this.menuRoot.remove(previous);
@@ -952,6 +1036,10 @@ export class SpaceGame {
     this.autoFire = false;
     this.autoBoost = false;
     this.pilotRetreating = false;
+    this.torpedoes = this.getCurrentShipStats().torpedoes;
+    this.torpedoCooldown = 0;
+    this.overchargeTimer = 0;
+    this.aegisPoints = 0;
     this.missionTime = 0;
     this.shotsFired = 0;
     this.shotsHit = 0;
@@ -1339,6 +1427,7 @@ export class SpaceGame {
     this.canvas.addEventListener('mousemove', this.onPointerMove);
     this.canvas.addEventListener('wheel', this.onWheel, { passive: false });
     this.canvas.addEventListener('mousedown', this.onPointerDown);
+    this.canvas.addEventListener('contextmenu', this.onContextMenu);
     window.addEventListener('mouseup', this.onPointerUp);
     window.addEventListener('keydown', this.onKeyDown, { passive: false });
     window.addEventListener('keyup', this.onKeyUp);
@@ -1360,6 +1449,7 @@ export class SpaceGame {
     this.canvas.removeEventListener('mousemove', this.onPointerMove);
     this.canvas.removeEventListener('wheel', this.onWheel);
     this.canvas.removeEventListener('mousedown', this.onPointerDown);
+    this.canvas.removeEventListener('contextmenu', this.onContextMenu);
     window.removeEventListener('mouseup', this.onPointerUp);
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
@@ -1479,6 +1569,9 @@ export class SpaceGame {
     }
     this.updateAutopilot(dt);
     this.updatePlayerMovement(dt, movementStats);
+    this.updateTorpedoes(dt);
+    this.overchargeTimer = Math.max(0, this.overchargeTimer - dt);
+    this.aegisPoints = Math.max(0, this.aegisPoints - AEGIS.decayPerSecond * dt);
     this.updateBlasts(dt);
     this.processSpawns();
     this.maintainAsteroidField();
@@ -1526,6 +1619,180 @@ export class SpaceGame {
     return this.boostHeld || this.autoBoost;
   }
 
+  // ---------------------------------------------------------------- proton torpedoes
+
+  private pickTorpedoTarget(): TargetRef | null {
+    if (this.resolveTarget()) return this.target;
+    const player = this.playerRoot.position;
+    const forward = getBasisVectors(this.playerRoot.quaternion).forward;
+    let best: TargetRef | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+    for (const entry of this.getTargetCandidates()) {
+      if (!entry.hostile) continue;
+      const offset = entry.position.clone().sub(player);
+      const distance = offset.length();
+      if (distance > 700) continue;
+      const angle = Math.acos(clamp(forward.dot(offset.multiplyScalar(1 / Math.max(0.001, distance))), -1, 1));
+      if (angle > 0.62) continue;
+      const score = angle * 400 + distance * 0.2;
+      if (score < bestScore) {
+        bestScore = score;
+        best = entry.ref;
+      }
+    }
+    return best;
+  }
+
+  /** Fires a homing proton torpedo at the locked target, or the hostile best lined up with the nose. */
+  fireTorpedo(): void {
+    if (this.mode !== 'playing') return;
+    const stats = this.getCurrentShipStats();
+    if (stats.torpedoes <= 0) {
+      this.flashAssistMessage('THIS CRAFT CARRIES NO TORPEDOES');
+      return;
+    }
+    if (this.torpedoes <= 0) {
+      this.flashAssistMessage('TORPEDO MAGAZINE EMPTY');
+      return;
+    }
+    if (this.torpedoCooldown > 0) return;
+    this.torpedoes -= 1;
+    this.torpedoCooldown = TORPEDO.cooldown;
+    this.shotsFired += 1;
+    const basis = getBasisVectors(this.playerRoot.quaternion);
+    const origin = this.localOffsetToWorld(this.playerRoot.position, this.playerRoot.quaternion, new THREE.Vector3(0, -this.playerRadius * 0.18, -this.playerMuzzleDistance - 1.2));
+    const attackMultiplier = stats.damage / Math.max(1, SHIPS[this.ship].damage);
+    const object = new THREE.Group();
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: 0xdfe8f2, emissive: 0x7fe9ff, emissiveIntensity: 1.4, roughness: 0.25, metalness: 0.6 });
+    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 1.7, 4, 10), bodyMaterial);
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.getBlastTextures().fire, color: 0x7fe9ff, transparent: true, opacity: 0.95, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.scale.setScalar(3.4);
+    glow.position.y = -1.3;
+    object.add(body, glow);
+    object.position.copy(origin);
+    object.quaternion.setFromUnitVectors(LASER_UP_VECTOR, basis.forward);
+    this.laserLayer.add(object);
+    const velocity = basis.forward.clone().multiplyScalar(TORPEDO.launchSpeed).addScaledVector(this.playerVelocity, 0.4);
+    this.torpedoList.push({
+      id: ++this.torpedoId,
+      object,
+      velocity,
+      previousPosition: origin.clone(),
+      target: this.pickTorpedoTarget(),
+      age: 0,
+      trailTimer: 0,
+      damage: TORPEDO.damage * attackMultiplier * (this.overchargeTimer > 0 ? OVERCHARGE.damageMultiplier : 1),
+    });
+    this.spawnSpark(origin, 0xbff6ff, 2.2);
+    this.audio.playLaser(false, 70);
+    this.audio.playImpact(true, 40);
+    this.emitSnapshot(true);
+  }
+
+  private updateTorpedoes(dt: number): void {
+    this.torpedoCooldown = Math.max(0, this.torpedoCooldown - dt);
+    for (const torpedo of [...this.torpedoList]) {
+      torpedo.age += dt;
+      torpedo.previousPosition.copy(torpedo.object.position);
+      let resolved = torpedo.target ? this.resolveTarget(torpedo.target) : null;
+      if (!resolved && torpedo.age > 0.35 && torpedo.age < 1.6) {
+        torpedo.target = this.pickTorpedoTarget();
+        resolved = torpedo.target ? this.resolveTarget(torpedo.target) : null;
+      }
+      const speed = Math.min(TORPEDO.speed, TORPEDO.launchSpeed + (TORPEDO.speed - TORPEDO.launchSpeed) * (torpedo.age / 0.9));
+      const heading = torpedo.velocity.clone().normalize();
+      if (resolved && torpedo.age > 0.18) {
+        const aim = solveInterceptCourse(torpedo.object.position, resolved.position, resolved.velocity, Math.max(40, speed)).aimPoint;
+        const desired = aim.clone().sub(torpedo.object.position).normalize();
+        const angle = Math.acos(clamp(heading.dot(desired), -1, 1));
+        const turn = Math.min(angle, TORPEDO.turnRate * dt * (1 + torpedo.age * 0.4));
+        if (angle > 1e-4) {
+          const axis = new THREE.Vector3().crossVectors(heading, desired);
+          if (axis.lengthSq() > 1e-9) heading.applyAxisAngle(axis.normalize(), turn);
+        }
+      }
+      torpedo.velocity.copy(heading.multiplyScalar(speed));
+      torpedo.object.position.addScaledVector(torpedo.velocity, dt);
+      torpedo.object.quaternion.setFromUnitVectors(LASER_UP_VECTOR, torpedo.velocity.clone().normalize());
+      torpedo.trailTimer -= dt;
+      if (torpedo.trailTimer <= 0) {
+        torpedo.trailTimer = 0.035;
+        this.spawnSpark(torpedo.object.position.clone().addScaledVector(torpedo.velocity.clone().normalize(), -1.4), 0x6fe3ff, 0.9);
+      }
+      const hit = this.findTorpedoImpact(torpedo);
+      if (hit) {
+        this.detonateTorpedo(torpedo, hit.position, hit.kind, hit.id);
+      } else if (torpedo.age > TORPEDO.life || torpedo.object.position.distanceTo(this.playerRoot.position) > 1500) {
+        this.spawnBlast(torpedo.object.position, { radius: 3, power: 0.8, cause: 'weapon' });
+        this.removeTorpedo(torpedo);
+      }
+    }
+  }
+
+  private removeTorpedo(torpedo: TorpedoEntity): void {
+    this.torpedoList = this.torpedoList.filter((candidate) => candidate.id !== torpedo.id);
+    disposeObject3D(torpedo.object);
+  }
+
+  private findTorpedoImpact(torpedo: TorpedoEntity): { position: THREE.Vector3; kind: 'enemy' | 'asteroid' | 'subsystem' | 'hull'; id: string | number } | null {
+    const from = torpedo.previousPosition;
+    const to = torpedo.object.position;
+    let best: { position: THREE.Vector3; kind: 'enemy' | 'asteroid' | 'subsystem' | 'hull'; id: string | number } | null = null;
+    let bestTime = Number.POSITIVE_INFINITY;
+    const consider = (center: THREE.Vector3, radius: number, kind: 'enemy' | 'asteroid' | 'subsystem' | 'hull', id: string | number) => {
+      const time = segmentSphereIntersection(from, to, center, radius + 0.9);
+      if (time !== null && time < bestTime) {
+        bestTime = time;
+        best = { position: from.clone().lerp(to, clamp(time, 0, 1)), kind, id };
+      }
+    };
+    for (const enemy of this.enemies) consider(enemy.object.position, enemy.radius, 'enemy', enemy.id);
+    for (const asteroid of this.asteroids) consider(asteroid.object.position, asteroid.radius, 'asteroid', asteroid.id);
+    const boss = this.boss;
+    if (boss && !boss.defeated) {
+      const scale = this.gameplayCarrier.scale.x;
+      for (const sub of boss.subsystems) if (!sub.destroyed) consider(sub.worldCenter, sub.radius * scale * 0.9, 'subsystem', sub.id);
+      consider(this.gameplayCarrier.position, 6 * scale, 'hull', 'hull');
+    }
+    return best;
+  }
+
+  private detonateTorpedo(torpedo: TorpedoEntity, position: THREE.Vector3, kind: 'enemy' | 'asteroid' | 'subsystem' | 'hull', id: string | number): void {
+    this.removeTorpedo(torpedo);
+    this.shotsHit += 1;
+    const damage = torpedo.damage;
+    this.spawnBlast(position, { radius: 6, power: 2.2, cause: 'weapon' });
+    this.cameraShake = Math.min(1.5, this.cameraShake + 0.25);
+    for (const enemy of [...this.enemies]) {
+      const distance = enemy.object.position.distanceTo(position);
+      if (kind === 'enemy' && enemy.id === id) {
+        this.damageEnemy(enemy, damage);
+      } else if (distance < TORPEDO.splashRadius + enemy.radius) {
+        this.damageEnemy(enemy, damage * TORPEDO.splashFalloff * (1 - distance / (TORPEDO.splashRadius + enemy.radius) * 0.6));
+      }
+    }
+    for (const asteroid of [...this.asteroids]) {
+      const distance = asteroid.object.position.distanceTo(position);
+      if (kind === 'asteroid' && asteroid.id === id) this.damageAsteroid(asteroid, damage, true);
+      else if (distance < TORPEDO.splashRadius + asteroid.radius) this.damageAsteroid(asteroid, damage * TORPEDO.splashFalloff, true);
+    }
+    const boss = this.boss;
+    if (boss && !boss.defeated) {
+      if (kind === 'subsystem') {
+        const sub = boss.subsystems.find((candidate) => candidate.id === id);
+        if (sub && !sub.destroyed) {
+          const shielded = sub.type === 'bridge' && !canDamageBridge(boss);
+          if (shielded) this.bossShieldFlash = 1;
+          const result = damageBossSubsystem(boss, sub.id, damage * TORPEDO.bossSubsystemMultiplier);
+          if (result.destroyed) this.onBossSubsystemDestroyed(sub);
+        }
+      } else if (kind === 'hull') {
+        damageBossHullDirect(boss, damage * BOSS_TUNING.hullHitMultiplier);
+        if (boss.shield > 0) this.bossShieldFlash = 1;
+      }
+    }
+  }
+
   // ---------------------------------------------------------------- targeting
 
   private resolveTarget(ref: TargetRef | null = this.target): ResolvedTarget | null {
@@ -1541,6 +1808,7 @@ export class SpaceGame {
         name: enemy.stats.name.toUpperCase(),
         detail: isCombatShip(enemy.shipClass) ? enemy.mode.toUpperCase().replace('-', ' ') : 'NON-COMBAT · BONUS',
         hostile: isCombatShip(enemy.shipClass),
+        heavy: enemy.shipClass === 'bomber' || enemy.shipClass === 'destroyer',
         hullPct: Math.max(0, Math.min(100, (enemy.hull / Math.max(1, enemy.stats.hull)) * 100)),
         shieldPct: Math.max(0, Math.min(100, (enemy.shield / Math.max(1, enemy.stats.shield)) * 100)),
       };
@@ -1557,6 +1825,7 @@ export class SpaceGame {
       name: boss.name.toUpperCase(),
       detail: objective ? objective.sub.name.toUpperCase() : 'CAPITAL SHIP',
       hostile: true,
+      heavy: true,
       hullPct: (boss.hull / boss.maxHull) * 100,
       shieldPct: (boss.shield / boss.maxShield) * 100,
     };
@@ -1727,7 +1996,10 @@ export class SpaceGame {
         pickup.type === 'energy' ? this.energy < MAX_ENERGY * 0.85
         : pickup.type === 'shield' ? this.playerShield < stats.shield * 0.9
         : pickup.type === 'hull' ? this.playerHull < stats.hull * 0.9
-        : this.getAvailableUpgradePickupTypes().includes(pickup.type);
+        : pickup.type === 'torpedo' ? stats.torpedoes > 0 && this.torpedoes < stats.torpedoes
+        : pickup.type === 'overcharge' ? this.overchargeTimer < 4
+        : pickup.type === 'aegis' ? this.aegisPoints < 30
+        : isUpgradePickup(pickup.type) && this.getAvailableUpgradePickupTypes().includes(pickup.type as UpgradePickupType);
       if (!useful) continue;
       const distance = pickup.object.position.distanceTo(this.playerRoot.position);
       if (distance < bestDistance) {
@@ -1736,7 +2008,7 @@ export class SpaceGame {
       }
     }
     if (!best) return null;
-    return { kind: 'supply', position: best.object.position, velocity: new THREE.Vector3(), radius: best.radius, label: 'SUPPLY', hostile: false, standoff: 0 };
+    return { kind: 'supply', position: best.object.position, velocity: new THREE.Vector3(), radius: best.radius, label: PICKUP_LABELS_SHORT[best.type], hostile: false, heavy: false, standoff: 0 };
   }
 
   private buildPilotObjective(): PilotObjective | null {
@@ -1749,6 +2021,7 @@ export class SpaceGame {
       radius: resolved.radius,
       label: resolved.ref.kind === 'boss' ? `${resolved.name} · ${resolved.detail}` : resolved.name,
       hostile: resolved.hostile,
+      heavy: resolved.heavy,
       standoff: resolved.ref.kind === 'boss' ? 62 : 0,
     });
 
@@ -1763,7 +2036,7 @@ export class SpaceGame {
       if (count > 0) {
         centroid.multiplyScalar(1 / count);
         const away = player.clone().sub(centroid).normalize();
-        return { kind: 'flee', position: player.clone().addScaledVector(away, 500), velocity: new THREE.Vector3(), radius: 0, label: 'OPEN SPACE', hostile: false, standoff: 0 };
+        return { kind: 'flee', position: player.clone().addScaledVector(away, 500), velocity: new THREE.Vector3(), radius: 0, label: 'OPEN SPACE', hostile: false, heavy: false, standoff: 0 };
       }
     }
 
@@ -1814,7 +2087,7 @@ export class SpaceGame {
       return supply;
     }
     if (player.distanceTo(this.waveAnchor) > 260) {
-      return { kind: 'anchor', position: this.waveAnchor, velocity: new THREE.Vector3(), radius: 0, label: 'BATTLE ZONE', hostile: false, standoff: 0 };
+      return { kind: 'anchor', position: this.waveAnchor, velocity: new THREE.Vector3(), radius: 0, label: 'BATTLE ZONE', hostile: false, heavy: false, standoff: 0 };
     }
     return null;
   }
@@ -1938,6 +2211,12 @@ export class SpaceGame {
     if (!boostWanted || this.energy < 14) this.autoBoost = false;
     this.autoFire = fire;
     this.autoStatus = status;
+    if (combat && objective && objective.hostile && this.torpedoes > 0 && this.torpedoCooldown <= 0 && (objective.heavy || objective.kind === 'target' || objective.kind === 'boss')) {
+      const toTarget = objective.position.clone().sub(player);
+      const range = toTarget.length();
+      const aligned = Math.acos(clamp(basis.forward.dot(toTarget.multiplyScalar(1 / Math.max(0.001, range))), -1, 1));
+      if (range > 70 && range < 380 && aligned < 0.11) this.fireTorpedo();
+    }
   }
 
   private updatePlayerMovement(dt: number, stats: ShipDefinition): void {
@@ -1996,9 +2275,10 @@ export class SpaceGame {
   private processSpawns(): void {
     while (this.spawnQueue.length > 0 && this.spawnQueue[0].delay <= this.spawnClock) {
       const next = this.spawnQueue[0];
-      if (this.boss && !this.boss.defeated && next.type === 'enemy' && next.shipClass && isCombatShip(next.shipClass)) {
+      if (next.type === 'enemy' && next.shipClass && isCombatShip(next.shipClass)) {
         const alive = this.enemies.filter((enemy) => isCombatShip(enemy.shipClass)).length;
-        if (!canSpawnBossEscort(alive, this.difficulty)) {
+        const bossFight = !!this.boss && !this.boss.defeated;
+        if (bossFight ? !canSpawnBossEscort(alive, this.difficulty) : alive >= getMaxConcurrentCombat(this.wave, this.difficulty)) {
           return;
         }
       }
@@ -2020,7 +2300,7 @@ export class SpaceGame {
     const profile = FLIGHT_PROFILES[shipClass];
     const pursuit = getDifficultyAdjustedEnemyPursuitProfile(shipClass, this.difficulty);
     const difficultyTuning = getDifficultyTuning(this.difficulty);
-    const object = createShipModel(shipClass, { accent: 0xff708c, tint: 0x71788a, scale: shipClass === 'destroyer' ? 1.22 : undefined });
+    const object = createShipModel(shipClass, { accent: 0xff708c, tint: 0x71788a, scale: SHIP_MODEL_SCALE[shipClass] });
     const bounds = new THREE.Box3().setFromObject(object);
     const collisionRadius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
     const shieldShell = createShieldShell(collisionRadius, 0x7fe4ff);
@@ -2419,8 +2699,28 @@ export class SpaceGame {
       this.playerHull = result.next;
       restored = result.restored;
       message = `HULL +${Math.round(restored)}`;
+    } else if (pickup.type === 'torpedo') {
+      if (stats.torpedoes <= 0 || this.torpedoes >= stats.torpedoes) return false;
+      const added = Math.min(pickup.amount, stats.torpedoes - this.torpedoes);
+      this.torpedoes += added;
+      this.pickupMessageTimer = 2.6;
+      this.pickupMessage = `PROTON TORPEDOES +${added} · X TO FIRE`;
+      this.spawnSpark(pickup.object.position, getPickupColor('torpedo'), 1);
+      return true;
+    } else if (pickup.type === 'overcharge') {
+      this.overchargeTimer = OVERCHARGE.duration;
+      this.pickupMessageTimer = 2.6;
+      this.pickupMessage = `WEAPON OVERCHARGE · ${OVERCHARGE.duration}S`;
+      this.spawnSpark(pickup.object.position, getPickupColor('overcharge'), 1.2);
+      return true;
+    } else if (pickup.type === 'aegis') {
+      this.aegisPoints = Math.min(AEGIS.points * 1.6, this.aegisPoints + AEGIS.points);
+      this.pickupMessageTimer = 2.6;
+      this.pickupMessage = `AEGIS OVERSHIELD +${AEGIS.points}`;
+      this.spawnSpark(pickup.object.position, getPickupColor('aegis'), 1.2);
+      return true;
     } else {
-      const gained = this.applyUpgradePickup(pickup.type);
+      const gained = this.applyUpgradePickup(pickup.type as UpgradePickupType);
       if (gained <= 0) {
         return false;
       }
@@ -2472,6 +2772,14 @@ export class SpaceGame {
   private spawnEnemyDrop(enemy: EnemyEntity): void {
     const chance = enemy.pursuit.combat ? 0.58 : 0.78;
     if (this.random() > chance) {
+      return;
+    }
+    const ownStats = this.getCurrentShipStats();
+    const combatPool: PickupType[] = (['torpedo', 'overcharge', 'aegis'] as PickupType[]).filter((type) => canUseCombatPickup(type, ownStats) && (type !== 'torpedo' || this.torpedoes < ownStats.torpedoes));
+    if (this.torpedoes === 0 && combatPool.includes('torpedo')) combatPool.push('torpedo', 'torpedo');
+    if (combatPool.length > 0 && this.random() < (enemy.pursuit.combat ? 0.26 : 0.16)) {
+      const type = combatPool[Math.floor(this.random() * combatPool.length)] ?? combatPool[0];
+      this.spawnPickup(type, enemy.object.position.clone(), type === 'torpedo' ? TORPEDO.pickupAmount : 1, 0.7);
       return;
     }
     const availableUpgrades = this.getAvailableUpgradePickupTypes();
@@ -2583,14 +2891,15 @@ export class SpaceGame {
   }
 
   private firePlayerWeapons(stats: ShipDefinition): void {
-    const energyCost = Math.max(3, stats.damage * 0.2);
+    const overcharged = this.overchargeTimer > 0;
+    const energyCost = overcharged ? 0 : Math.max(3, stats.damage * 0.2);
     if (this.energy < energyCost) {
       return;
     }
     const profile = FLIGHT_PROFILES[this.ship];
     const basis = getBasisVectors(this.playerRoot.quaternion);
     this.energy = Math.max(0, this.energy - energyCost);
-    this.playerFireCooldown = stats.fireInterval;
+    this.playerFireCooldown = stats.fireInterval / (overcharged ? OVERCHARGE.fireRateMultiplier : 1);
     const shotCount = stats.mass >= 70 ? 4 : stats.mass >= 46 ? 3 : 2;
     const span = 0.45 + stats.mass * 0.006;
     for (let index = 0; index < shotCount; index += 1) {
@@ -2604,7 +2913,8 @@ export class SpaceGame {
         origin,
         direction: basis.forward,
         inheritedVelocity: this.playerVelocity.clone().multiplyScalar(0.32),
-        damage: stats.damage,
+        damage: stats.damage * (overcharged ? OVERCHARGE.damageMultiplier : 1),
+        tint: overcharged ? 0xff5cf0 : undefined,
         speed: profile.projectileSpeed,
         radius: 0.58,
         life: profile.projectileLifetime,
@@ -2662,8 +2972,9 @@ export class SpaceGame {
     radius: number;
     life: number;
     maxDistance: number;
+    tint?: number;
   }): void {
-    const bolt = createLaserBolt(config.kind === 'player' ? 0x7ce6ff : 0xff7d6d, config.kind === 'player' ? 0.15 : 0.18, config.kind === 'player' ? 3.0 : 2.6);
+    const bolt = createLaserBolt(config.tint ?? (config.kind === 'player' ? 0x7ce6ff : 0xff7d6d), config.kind === 'player' ? 0.15 : 0.18, config.kind === 'player' ? 3.0 : 2.6);
     const direction = config.direction.clone().normalize();
     bolt.position.copy(config.origin);
     bolt.quaternion.setFromUnitVectors(LASER_UP_VECTOR, direction);
@@ -3248,7 +3559,14 @@ export class SpaceGame {
     }
   }
 
-  private commitPlayerDamageResult(result: DamageResult, defeatMessage: string, cause: BlastCause = 'collision'): void {
+  private commitPlayerDamageResult(incoming: DamageResult, defeatMessage: string, cause: BlastCause = 'collision'): void {
+    let result = incoming;
+    if (this.aegisPoints > 0 && this.damageEnabled) {
+      const soaked = absorbWithOvershield(incoming, this.aegisPoints);
+      this.aegisPoints = soaked.remaining;
+      result = soaked.result;
+      if (soaked.absorbed > 0) this.spawnSpark(this.playerRoot.position, 0xeaf6ff, 1.6);
+    }
     const next = resolvePlayerDamageState(
       { shield: this.playerShield, hull: this.playerHull },
       result,
@@ -3669,8 +3987,9 @@ export class SpaceGame {
       this.activateBoss();
     }
 
+    this.spawnWaveSupplies(wave);
     const bossWave = isVictoryWave(wave);
-    const combatGap = bossWave ? BOSS_ESCORT_GAP : wave === 1 ? 0.92 : wave === 2 ? 0.82 : 0.68;
+    const combatGap = bossWave ? BOSS_ESCORT_GAP : wave === 1 ? 4.5 : wave === 2 ? 3.4 : wave === 3 ? 2.2 : 1.4;
     const bonusGap = wave <= 2 ? 1.05 : 0.86;
     let combatIndex = 0;
     let bonusIndex = 0;
@@ -3678,7 +3997,7 @@ export class SpaceGame {
       const bonus = !isCombatShip(shipClass);
       const delay = bonus
         ? 1.6 + bonusIndex * bonusGap + this.randomRange(0, 0.28)
-        : (bossWave ? BOSS_ESCORT_LEAD_IN : 0.8) + combatIndex * combatGap + this.randomRange(0, 0.22 + (bossWave ? 1.2 : 0));
+        : (bossWave ? BOSS_ESCORT_LEAD_IN : wave === 1 ? 4 : 1.6) + combatIndex * combatGap + this.randomRange(0, 0.22 + (bossWave ? 1.2 : 0));
       this.spawnQueue.push({ type: 'enemy', delay, shipClass });
       if (bonus) bonusIndex += 1; else combatIndex += 1;
     }
@@ -3691,6 +4010,21 @@ export class SpaceGame {
       });
     }
     this.spawnQueue.sort((a, b) => a.delay - b.delay);
+  }
+
+  /** Every wave opens with a visible combat powerup (torpedoes when you carry them) so the radar always has something to chase. */
+  private spawnWaveSupplies(wave: number): void {
+    const stats = this.getCurrentShipStats();
+    const forward = getBasisVectors(this.playerRoot.quaternion);
+    const place = (type: PickupType, amount: number, distance: number, side: number) => {
+      const position = this.playerRoot.position.clone().addScaledVector(forward.forward, distance).addScaledVector(forward.right, side).addScaledVector(forward.up, this.randomRange(-8, 10));
+      this.spawnPickup(type, position, amount, 0.25);
+    };
+    const first: PickupType = stats.torpedoes > 0 && this.torpedoes < stats.torpedoes ? 'torpedo' : 'overcharge';
+    place(first, first === 'torpedo' ? TORPEDO.pickupAmount : 1, 62, this.randomRange(-26, -10));
+    place('aegis', 1, 78, this.randomRange(10, 28));
+    if (wave % 2 === 0 || isVictoryWave(wave)) place('shield', 30, 55, this.randomRange(-6, 6));
+    if (wave === 1) place('energy', 35, 48, this.randomRange(-5, 5));
   }
 
   private advanceWaves(dt: number): void {
@@ -3809,6 +4143,10 @@ export class SpaceGame {
       summary: this.buildSummary(),
       autoMode: this.autoMode,
       autoStatus: this.autoStatus,
+      torpedoes: this.torpedoes,
+      torpedoCapacity: stats.torpedoes,
+      overcharge: Math.round(this.overchargeTimer * 10) / 10,
+      aegis: Math.round(this.aegisPoints),
       target: (() => {
         const resolved = this.resolveTarget();
         return resolved ? { name: resolved.name, detail: resolved.detail, distance: resolved.position.distanceTo(this.playerRoot.position) } : null;
@@ -3836,7 +4174,7 @@ export class SpaceGame {
     this.playerRoot.clear();
     this.playerRoot.position.set(0, PLAYER_BASE_Y, PLAYER_START_Z);
     this.playerRoot.quaternion.identity();
-    const ship = createShipModel(shipClass, { accent: 0x8be3ff, tint: 0x909db3, scale: shipClass === 'destroyer' ? 1.16 : undefined });
+    const ship = createShipModel(shipClass, { accent: 0x8be3ff, tint: 0x909db3, scale: SHIP_MODEL_SCALE[shipClass] });
     const bounds = new THREE.Box3().setFromObject(ship);
     const radius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
     const shield = createShieldShell(radius, 0x86e7ff);
@@ -3885,6 +4223,11 @@ export class SpaceGame {
   }
 
   private resetGameplayState(): void {
+    this.torpedoList.forEach((torpedo) => disposeObject3D(torpedo.object));
+    this.torpedoList = [];
+    this.overchargeTimer = 0;
+    this.aegisPoints = 0;
+    this.torpedoes = 0;
     this.blasts.forEach((blast) => disposeObject3D(blast.root));
     this.blasts = [];
     this.cameraShake = 0;
@@ -4029,9 +4372,10 @@ export class SpaceGame {
       this.lastShakeOffset.set(0, 0, 0);
     }
     const profile = FLIGHT_PROFILES[this.ship];
+    const camScale = clamp(Math.pow(this.playerRadius / LEGACY_SHIP_RADIUS[this.ship], 0.8), 0.78, 1.6);
     const frame = getChaseCameraFrame(this.playerRoot.position, this.playerRoot.quaternion, this.playerVelocity, {
-      distance: profile.cameraDistance,
-      height: profile.cameraHeight,
+      distance: profile.cameraDistance * camScale,
+      height: profile.cameraHeight * camScale,
       lookAhead: profile.cameraLookAhead,
       lookLift: 1.35,
     });

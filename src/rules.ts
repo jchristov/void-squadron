@@ -8,7 +8,7 @@ export const SHIP_CLASSES = [
 ] as const;
 
 export const DIFFICULTIES = ['relaxed', 'standard', 'veteran'] as const;
-export const PICKUP_TYPES = ['energy', 'shield', 'hull', 'hull-upgrade', 'defense-upgrade', 'attack-upgrade'] as const;
+export const PICKUP_TYPES = ['energy', 'shield', 'hull', 'hull-upgrade', 'defense-upgrade', 'attack-upgrade', 'torpedo', 'overcharge', 'aegis'] as const;
 
 export type ShipClass = (typeof SHIP_CLASSES)[number];
 export type Difficulty = (typeof DIFFICULTIES)[number];
@@ -22,6 +22,9 @@ export const PICKUP_COLORS: Record<PickupType, number> = {
   'hull-upgrade': 0xff9f43,
   'defense-upgrade': 0xa78bff,
   'attack-upgrade': 0xff5f8f,
+  torpedo: 0xff3b3b,
+  overcharge: 0xff2bd6,
+  aegis: 0xeaf6ff,
 };
 
 export const PICKUP_LABELS: Record<PickupType, string> = {
@@ -31,7 +34,15 @@ export const PICKUP_LABELS: Record<PickupType, string> = {
   'hull-upgrade': 'HULL UPGRADE',
   'defense-upgrade': 'DEFENSE UPGRADE',
   'attack-upgrade': 'ATTACK UPGRADE',
+  torpedo: 'PROTON TORPEDOES',
+  overcharge: 'WEAPON OVERCHARGE',
+  aegis: 'AEGIS OVERSHIELD',
 };
+
+export const COMBAT_PICKUPS = ['torpedo', 'overcharge', 'aegis'] as const;
+export function isCombatPickup(type: PickupType): boolean {
+  return (COMBAT_PICKUPS as readonly string[]).includes(type);
+}
 
 export function isUpgradePickup(type: PickupType): boolean {
   return type.endsWith('-upgrade');
@@ -51,6 +62,8 @@ export interface ShipDefinition {
   mass: number;
   damage: number;
   fireInterval: number;
+  /** Proton torpedo magazine size; 0 means the craft carries none. */
+  torpedoes: number;
   description: string;
 }
 
@@ -128,6 +141,7 @@ export const SHIPS: Record<ShipClass, ShipDefinition> = {
     mass: 34,
     damage: 19,
     fireInterval: 0.19,
+    torpedoes: 4,
     description: 'Front-line wedge fighter built for readable attack runs, breakaway passes, and steady multirole pressure.',
   },
   interceptor: {
@@ -140,6 +154,7 @@ export const SHIPS: Record<ShipClass, ShipDefinition> = {
     mass: 24,
     damage: 16,
     fireInterval: 0.14,
+    torpedoes: 0,
     description: 'Featherweight sprint craft that commits hard to pursuit, pivots quickly, and pressures exposed targets.',
   },
   bomber: {
@@ -152,6 +167,7 @@ export const SHIPS: Record<ShipClass, ShipDefinition> = {
     mass: 52,
     damage: 30,
     fireInterval: 0.32,
+    torpedoes: 8,
     description: 'Armored strike platform that prefers standoff volleys, deliberate turns, and punishing heavy shots.',
   },
   shuttle: {
@@ -164,30 +180,33 @@ export const SHIPS: Record<ShipClass, ShipDefinition> = {
     mass: 46,
     damage: 22,
     fireInterval: 0.24,
+    torpedoes: 0,
     description: 'Unarmed support transport that will break away from combat, flee the player, and sometimes carry supplies.',
   },
   freighter: {
     name: 'Bastion Freighter',
     role: 'Civilian cargo escapee',
-    hull: 224,
-    shield: 126,
-    speed: 23,
-    armor: 0.32,
-    mass: 70,
-    damage: 27,
-    fireInterval: 0.27,
-    description: 'Heavy cargo hauler that flees under pressure, never fires, and becomes an optional bonus target.',
+    hull: 360,
+    shield: 150,
+    speed: 16,
+    armor: 0.48,
+    mass: 150,
+    damage: 13,
+    fireInterval: 0.42,
+    torpedoes: 0,
+    description: 'Slow, heavily plated hauler: the toughest hull and armor in the fleet but only light defensive guns and the lowest speed. As an enemy it flees and never fires.',
   },
   destroyer: {
     name: 'Citadel Destroyer',
     role: 'Defensive line guardian',
-    hull: 310,
-    shield: 170,
+    hull: 340,
+    shield: 190,
     speed: 19,
     armor: 0.4,
     mass: 120,
     damage: 38,
     fireInterval: 0.36,
+    torpedoes: 6,
     description: 'Compact line destroyer that defends its patrol zone with slow turns, long reach, and layered armor.',
   },
 };
@@ -209,7 +228,7 @@ const WAVE_PRESETS: Record<number, Omit<WaveConfig, 'wave' | 'enemies' | 'combat
   roster: readonly ShipClass[];
 }> = {
   1: {
-    roster: ['fighter', 'interceptor', 'fighter', 'fighter', 'interceptor', 'bomber'],
+    roster: ['fighter', 'fighter', 'interceptor', 'fighter'],
     asteroids: 3,
     environmentSpeed: 22,
     asteroidSpeed: 14,
@@ -217,7 +236,7 @@ const WAVE_PRESETS: Record<number, Omit<WaveConfig, 'wave' | 'enemies' | 'combat
     message: 'Light contacts only. Ease into the corridor and learn their approach vectors.',
   },
   2: {
-    roster: ['fighter', 'interceptor', 'fighter', 'bomber', 'interceptor', 'fighter', 'shuttle', 'shuttle'],
+    roster: ['fighter', 'interceptor', 'fighter', 'bomber', 'shuttle', 'shuttle'],
     asteroids: 4,
     environmentSpeed: 24,
     asteroidSpeed: 15,
@@ -225,7 +244,7 @@ const WAVE_PRESETS: Record<number, Omit<WaveConfig, 'wave' | 'enemies' | 'combat
     message: 'Escort craft are screening civilian runners. Break the fighters first.',
   },
   3: {
-    roster: ['interceptor', 'fighter', 'bomber', 'interceptor', 'fighter', 'bomber', 'fighter', 'shuttle', 'freighter', 'shuttle'],
+    roster: ['interceptor', 'fighter', 'bomber', 'interceptor', 'fighter', 'bomber', 'shuttle', 'freighter', 'shuttle'],
     asteroids: 5,
     environmentSpeed: 26,
     asteroidSpeed: 17,
@@ -233,7 +252,7 @@ const WAVE_PRESETS: Record<number, Omit<WaveConfig, 'wave' | 'enemies' | 'combat
     message: 'Bombers are staging deeper volleys while support ships try to slip past the lane.',
   },
   4: {
-    roster: ['fighter', 'interceptor', 'bomber', 'fighter', 'bomber', 'interceptor', 'destroyer', 'fighter', 'bomber', 'shuttle', 'freighter', 'shuttle'],
+    roster: ['fighter', 'interceptor', 'bomber', 'fighter', 'bomber', 'interceptor', 'destroyer', 'shuttle', 'freighter', 'shuttle'],
     asteroids: 6,
     environmentSpeed: 28,
     asteroidSpeed: 19,
@@ -362,9 +381,9 @@ export function getEnemyAttackTuning(shipClass: ShipClass, wave: number, difficu
   const progression = (clamp(wave, 1, MAX_WAVE) - 1) / Math.max(1, MAX_WAVE - 1);
   const earlyRelief = 1 - progression;
   return {
-    damageMultiplier: Math.round((base.damageMultiplier * (0.74 + progression * 0.26) * tuning.enemyDamageMultiplier) * 1000) / 1000,
-    accuracy: Math.round(clamp((base.accuracy * (0.72 + progression * 0.28) - earlyRelief * 0.05) * tuning.enemyAccuracyMultiplier, 0.4, 0.98) * 1000) / 1000,
-    cooldownMultiplier: Math.round(((base.cooldownMultiplier + earlyRelief * 0.32) * tuning.enemyCooldownMultiplier) * 1000) / 1000,
+    damageMultiplier: Math.round((base.damageMultiplier * (0.5 + progression * 0.5) * tuning.enemyDamageMultiplier) * 1000) / 1000,
+    accuracy: Math.round(clamp((base.accuracy * (0.58 + progression * 0.42) - earlyRelief * 0.08) * tuning.enemyAccuracyMultiplier, 0.34, 0.98) * 1000) / 1000,
+    cooldownMultiplier: Math.round(((base.cooldownMultiplier + earlyRelief * 0.7) * tuning.enemyCooldownMultiplier) * 1000) / 1000,
   };
 }
 
@@ -419,7 +438,7 @@ export function resolveCollision(a: CollisionBody, b: CollisionBody, relativeSpe
   const relativeSpeed = Math.max(4, Number.isFinite(relativeSpeedOverride) ? Math.abs(relativeSpeedOverride ?? 0) : Math.abs(a.speed - b.speed));
   const totalMass = Math.max(1, a.mass + b.mass);
   const reducedMass = (a.mass * b.mass) / totalMass;
-  const impactDamage = Math.max(6, reducedMass * relativeSpeed * relativeSpeed * 0.0019);
+  const impactDamage = Math.max(6, reducedMass * relativeSpeed * relativeSpeed * 0.0012);
   const aShare = 0.45 + b.mass / totalMass;
   const bShare = 0.45 + a.mass / totalMass;
   return {
@@ -472,4 +491,83 @@ export function getForwardSpeed(baseSpeed: number, boosting: boolean, energy: nu
 
 export function isVictoryWave(wave: number): boolean {
   return wave >= MAX_WAVE;
+}
+
+/**
+ * Hull collision radius per class in world units. Sizes grow strictly in hangar order (fighter -> destroyer)
+ * and are used to derive each model's scale so models, hitboxes and the preview all agree.
+ */
+export const SHIP_TARGET_RADIUS: Record<ShipClass, number> = {
+  fighter: 3.4,
+  interceptor: 4.0,
+  bomber: 5.0,
+  shuttle: 6.0,
+  freighter: 7.6,
+  destroyer: 10.0,
+};
+
+/** Model scale that makes each procedural model hit SHIP_TARGET_RADIUS (measured at scale 1). */
+export const SHIP_MODEL_SCALE: Record<ShipClass, number> = {
+  fighter: 0.7635,
+  interceptor: 0.8627,
+  bomber: 0.9885,
+  shuttle: 1.3621,
+  freighter: 1.5108,
+  destroyer: 1.4705,
+};
+
+export const TORPEDO = {
+  damage: 150,
+  splashRadius: 24,
+  splashFalloff: 0.55,
+  bossSubsystemMultiplier: 1.6,
+  speed: 150,
+  launchSpeed: 55,
+  turnRate: 2.6,
+  life: 5.5,
+  cooldown: 0.9,
+  pickupAmount: 2,
+} as const;
+
+export const OVERCHARGE = { duration: 12, damageMultiplier: 1.7, fireRateMultiplier: 1.45, energyCostMultiplier: 0 } as const;
+export const AEGIS = { points: 90, decayPerSecond: 3 } as const;
+
+/** Combat powerups only drop when the current ship can use them (torpedoes need a magazine). */
+export function canUseCombatPickup(type: PickupType, ship: ShipDefinition): boolean {
+  return type === 'torpedo' ? ship.torpedoes > 0 : isCombatPickup(type);
+}
+
+/**
+ * An overshield sits on top of shield and hull: it soaks the damage a hit would have dealt, shields first,
+ * and returns the adjusted result plus the points it has left.
+ */
+export function absorbWithOvershield(result: DamageResult, overshield: number): { result: DamageResult; remaining: number; absorbed: number } {
+  const total = result.shieldLoss + result.hullLoss;
+  if (overshield <= 0 || total <= 0) return { result, remaining: Math.max(0, overshield), absorbed: 0 };
+  const absorbed = Math.min(overshield, total);
+  const shieldBack = Math.min(result.shieldLoss, absorbed);
+  const hullBack = Math.min(result.hullLoss, absorbed - shieldBack);
+  const hull = result.hull + hullBack;
+  return {
+    absorbed,
+    remaining: overshield - absorbed,
+    result: {
+      ...result,
+      shield: result.shield + shieldBack,
+      hull,
+      shieldLoss: result.shieldLoss - shieldBack,
+      hullLoss: result.hullLoss - hullBack,
+      effectiveDamage: Math.max(0, result.effectiveDamage - absorbed),
+      destroyed: hull <= 0,
+    },
+  };
+}
+
+const MAX_CONCURRENT_COMBAT: Record<number, number> = { 1: 2, 2: 3, 3: 4, 4: 5 };
+const CONCURRENT_BY_DIFFICULTY: Record<Difficulty, number> = { relaxed: -1, standard: 0, veteran: 1 };
+
+/** Hostile combat ships that may be alive at once; the rest of the wave queues behind them. */
+export function getMaxConcurrentCombat(wave: number, difficulty: Difficulty = 'standard'): number {
+  const base = MAX_CONCURRENT_COMBAT[clamp(Math.round(wave), 1, MAX_WAVE)] ?? 6;
+  return Math.max(1, base + CONCURRENT_BY_DIFFICULTY[difficulty]);
 }
