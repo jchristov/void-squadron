@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ShipClass } from './rules';
 
 export interface ShipModelOptions {
@@ -479,6 +480,9 @@ function createPlanetTexture(size = 1024, seed = 33): THREE.CanvasTexture {
   return texture;
 }
 
+export const BACKDROP_STAR_BASE = 2800;
+
+/** Backdrop stars are allocated at twice the default so density can go up to 200% by changing the draw range. */
 export function createSpaceBackdrop(): THREE.Group {
   const group = new THREE.Group();
 
@@ -490,7 +494,7 @@ export function createSpaceBackdrop(): THREE.Group {
   group.add(sky);
 
   const starsGeometry = new THREE.BufferGeometry();
-  const starCount = 2800;
+  const starCount = BACKDROP_STAR_BASE * 2;
   const positions = new Float32Array(starCount * 3);
   const random = mulberry32(72);
   for (let i = 0; i < starCount; i += 1) {
@@ -506,6 +510,8 @@ export function createSpaceBackdrop(): THREE.Group {
     starsGeometry,
     new THREE.PointsMaterial({ color: 0xffffff, size: 0.85, sizeAttenuation: true, transparent: true, opacity: 0.9 }),
   );
+  starsGeometry.setDrawRange(0, BACKDROP_STAR_BASE);
+  group.userData.setStarDensity = (density: number) => starsGeometry.setDrawRange(0, Math.round(BACKDROP_STAR_BASE * THREE.MathUtils.clamp(density, 0, 2)));
   group.add(stars);
 
   return group;
@@ -584,23 +590,88 @@ export function createPlanet(radius = 24): THREE.Group {
   return group;
 }
 
-export function createAsteroid(radius: number, seed: number): THREE.Mesh {
-  const geometry = new THREE.IcosahedronGeometry(radius, 2);
-  const positionAttribute = geometry.getAttribute('position');
+/** Smooth 3D value noise; deterministic per seed so shared vertices always get identical displacement. */
+function createNoise3(seed: number): (x: number, y: number, z: number) => number {
   const random = mulberry32(seed);
-  for (let index = 0; index < positionAttribute.count; index += 1) {
-    const offset = 0.72 + random() * 0.5;
-    const x = positionAttribute.getX(index) * offset;
-    const y = positionAttribute.getY(index) * (0.82 + random() * 0.4);
-    const z = positionAttribute.getZ(index) * (0.78 + random() * 0.55);
-    positionAttribute.setXYZ(index, x, y, z);
+  const size = 64;
+  const lattice = new Float32Array(size * size * size);
+  for (let i = 0; i < lattice.length; i += 1) lattice[i] = random();
+  const at = (x: number, y: number, z: number) => lattice[(((x & 63) * size) + (y & 63)) * size + (z & 63)];
+  const fade = (t: number) => t * t * (3 - 2 * t);
+  return (x, y, z) => {
+    const x0 = Math.floor(x), y0 = Math.floor(y), z0 = Math.floor(z);
+    const fx = fade(x - x0), fy = fade(y - y0), fz = fade(z - z0);
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+    return lerp(
+      lerp(lerp(at(x0, y0, z0), at(x0 + 1, y0, z0), fx), lerp(at(x0, y0 + 1, z0), at(x0 + 1, y0 + 1, z0), fx), fy),
+      lerp(lerp(at(x0, y0, z0 + 1), at(x0 + 1, y0, z0 + 1), fx), lerp(at(x0, y0 + 1, z0 + 1), at(x0 + 1, y0 + 1, z0 + 1), fx), fy),
+      fz,
+    );
+  };
+}
+
+/**
+ * A closed, indexed rock: every vertex is displaced as a pure function of its direction, so neighbouring
+ * faces share positions (no cracks to see through), with lumpy fbm, ridged detail, craters and tonal variation.
+ */
+export function createAsteroid(radius: number, seed: number): THREE.Mesh {
+  const detail = radius > 4 ? 6 : radius > 2.2 ? 5 : 4;
+  let geometry: THREE.BufferGeometry = new THREE.IcosahedronGeometry(1, detail);
+  geometry.deleteAttribute('normal');
+  geometry.deleteAttribute('uv');
+  geometry = mergeVertices(geometry, 1e-4);
+
+  const random = mulberry32(seed);
+  const noise = createNoise3(seed ^ 0x9e3779b9);
+  const stretch = new THREE.Vector3(0.82 + random() * 0.36, 0.78 + random() * 0.34, 0.8 + random() * 0.4);
+  const offset = new THREE.Vector3(random() * 40, random() * 40, random() * 40);
+  const craters = Array.from({ length: 5 + Math.floor(random() * 5) }, () => {
+    const direction = new THREE.Vector3(random() * 2 - 1, random() * 2 - 1, random() * 2 - 1).normalize();
+    return { direction, size: 0.2 + random() * 0.3, depth: 0.05 + random() * 0.09 };
+  });
+
+  const position = geometry.getAttribute('position');
+  const colors = new Float32Array(position.count * 3);
+  const direction = new THREE.Vector3();
+  const base = new THREE.Color(0xa8957f);
+  const dark = new THREE.Color(0x645849);
+  const light = new THREE.Color(0xd6c3a8);
+  const tint = new THREE.Color();
+  for (let index = 0; index < position.count; index += 1) {
+    direction.fromBufferAttribute(position, index).normalize();
+    const px = direction.x * 1.7 + offset.x, py = direction.y * 1.7 + offset.y, pz = direction.z * 1.7 + offset.z;
+    const broad = noise(px, py, pz) * 0.6 + noise(px * 2.1, py * 2.1, pz * 2.1) * 0.28 + noise(px * 4.3, py * 4.3, pz * 4.3) * 0.12;
+    const ridged = 1 - Math.abs(noise(px * 3.2 + 9, py * 3.2, pz * 3.2) * 2 - 1);
+    let displacement = (broad - 0.5) * 0.46 + ridged * 0.07;
+    let craterShade = 0;
+    for (const crater of craters) {
+      const angle = Math.acos(THREE.MathUtils.clamp(direction.dot(crater.direction), -1, 1));
+      const t = angle / crater.size;
+      if (t < 1.35) {
+        const bowl = t < 1 ? -(1 - t * t) * crater.depth : 0;
+        const rim = Math.exp(-Math.pow((t - 1.06) * 5, 2)) * crater.depth * 0.45;
+        displacement += bowl + rim;
+        craterShade += t < 1 ? (1 - t) * 0.5 : 0;
+      }
+    }
+    const length = 1 + displacement;
+    position.setXYZ(index, direction.x * length * stretch.x * radius, direction.y * length * stretch.y * radius, direction.z * length * stretch.z * radius);
+
+    const grain = noise(px * 6 + 3, py * 6, pz * 6);
+    tint.copy(dark).lerp(base, THREE.MathUtils.clamp(0.35 + broad * 0.8, 0, 1)).lerp(light, THREE.MathUtils.clamp((ridged - 0.55) * 1.4 + (grain - 0.5) * 0.5, 0, 0.7));
+    tint.multiplyScalar(1 - Math.min(0.55, craterShade));
+    colors.set([tint.r, tint.g, tint.b], index * 3);
   }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
   const material = new THREE.MeshStandardMaterial({
-    color: 0x72665d,
-    roughness: 0.96,
-    metalness: 0.08,
-    flatShading: true,
+    color: 0xffffff,
+    vertexColors: true,
+    roughness: 0.95,
+    metalness: 0.06,
+    envMapIntensity: 0.4,
   });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true;

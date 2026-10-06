@@ -453,6 +453,8 @@ interface PickupEntity {
   pulse: number;
 }
 
+const MOTION_STAR_BASE = 900;
+
 interface MotionStars {
   points: THREE.Points;
   geometry: THREE.BufferGeometry;
@@ -1216,6 +1218,13 @@ export class SpaceGame {
     this.audio.setMuted(muted);
   }
 
+  /** Scales both the distant sky stars and the streaking motion stars: 0 = none, 1 = default, 2 = dense. */
+  setStarDensity(density: number): void {
+    const value = clamp(density, 0, 2);
+    (this.backdropRoot.userData.setStarDensity as ((d: number) => void) | undefined)?.(value);
+    this.motionStars.geometry.setDrawRange(0, Math.round(MOTION_STAR_BASE * value));
+  }
+
   setQuality(high: boolean): void {
     this.highQuality = high;
     this.bloomPass.enabled = high;
@@ -1490,7 +1499,7 @@ export class SpaceGame {
 
   private createMotionStars(): MotionStars {
     const geometry = new THREE.BufferGeometry();
-    const count = 900;
+    const count = MOTION_STAR_BASE * 2;
     const positions = new Float32Array(count * 3);
     for (let index = 0; index < count; index += 1) {
       positions[index * 3] = this.randomRange(-55, 55);
@@ -1498,6 +1507,7 @@ export class SpaceGame {
       positions[index * 3 + 2] = this.randomRange(-420, 22);
     }
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setDrawRange(0, MOTION_STAR_BASE);
     const material = new THREE.PointsMaterial({
       color: 0xb7dcff,
       size: 0.34,

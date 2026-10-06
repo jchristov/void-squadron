@@ -66,6 +66,8 @@ On touchscreens, drag on the space view to steer and fire. Keyboard and mouse on
 
 ### Game settings
 
+**Interface settings** (saved locally): *Starfield density* (0–200%, scales the sky stars and the streaking motion stars), *Panel translucency* (0–80%, applies to every HUD card, panel and dialog) and *Panel rounding* (0–24 px; 0 keeps the sharp chamfered look and is the default).
+
 Open **SETTINGS** to select Relaxed, Standard, or Veteran difficulty. **Physical collisions** toggles impacts with spacecraft, asteroids, planets, and carriers. **Player damage** independently toggles incoming hull/shield damage; your weapons, power-up collection, and recovery remain active. **Capture mouse** locks and hides the cursor for relative mouse steering after Launch/Resume; Escape releases capture and pauses. Use **M** to toggle capture during flight. The **Mouse Sensitivity** slider (**0.5× to 10×**, default **5×**) scales both captured relative steering and free-cursor steering (a gain of 0.6× per step, so the default 5× reaches full turn rate at about a third of the half-screen deflection), without altering keyboard steering. The HUD indicates the actual capture state and current sensitivity. Browsers may deny pointer lock; normal steering remains available.
 
 ### Targeting and pilot assists
