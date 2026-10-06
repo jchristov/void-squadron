@@ -311,6 +311,31 @@ export function createCapitalCarrier(): THREE.Group {
     group.add(slit);
   }
 
+  // Visual Subsystem Domes, Bridge, and Ventral Hangar
+  const domeMat = createMetalMaterial(0x4fd4ff, 0x1d6688, 0.2, 0.4);
+  const bridgeMat = createMetalMaterial(0xff776c, 0x661818, 0.3, 0.6);
+  const hangarMat = createMetalMaterial(0xffba75, 0x664010, 0.3, 0.5);
+
+  const portDome = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), domeMat);
+  portDome.position.set(-6.2, 3.8, -4.2);
+  portDome.name = 'subsystem_shield_gen_port';
+  group.add(portDome);
+
+  const stbdDome = new THREE.Mesh(new THREE.SphereGeometry(1.6, 16, 16), domeMat);
+  stbdDome.position.set(6.2, 3.8, -4.2);
+  stbdDome.name = 'subsystem_shield_gen_starboard';
+  group.add(stbdDome);
+
+  const bridgeTower = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 3.2), bridgeMat);
+  bridgeTower.position.set(0, 4.2, -6.0);
+  bridgeTower.name = 'subsystem_bridge';
+  group.add(bridgeTower);
+
+  const hangarBay = new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.4, 6.0), hangarMat);
+  hangarBay.position.set(0, -2.4, 4.5);
+  hangarBay.name = 'subsystem_hangar_bay';
+  group.add(hangarBay);
+
   addThrusters(group, 7, 3.2, 12.8, 0.45, 0x53c7ff);
   group.scale.setScalar(1.45);
   return group;

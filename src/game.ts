@@ -74,6 +74,17 @@ import {
   saveStoredShipUpgrades,
   type UpgradeLevels,
 } from './upgrades.ts';
+import {
+  createCapitalShipBoss,
+  createCapitalShipSubsystems,
+  areShieldGeneratorsDestroyed,
+  canDamageBridge,
+  damageBossSubsystem,
+  damageBossHullDirect,
+  type CapitalShipBoss,
+  type CapitalShipSubsystem,
+  type CapitalShipTurret,
+} from './capital.ts';
 
 export interface GameSnapshot {
   mode: 'menu' | 'playing' | 'paused' | 'ended';
@@ -100,6 +111,14 @@ export interface GameSnapshot {
   recovery?: boolean;
   captureActive?: boolean;
   difficulty?: Difficulty;
+  boss?: {
+    name: string;
+    hull: number;
+    maxHull: number;
+    shield: number;
+    maxShield: number;
+    subsystems: { id: string; name: string; destroyed: boolean; hull: number; maxHull: number }[];
+  } | null;
 }
 
 export interface FlightTelemetry {
@@ -124,6 +143,23 @@ export interface FlightTelemetry {
   readonly asteroids: readonly Readonly<FlightTelemetryAsteroid>[];
   readonly projectiles: readonly Readonly<FlightTelemetryProjectile>[];
   readonly pickups?: readonly Readonly<FlightTelemetryPickup>[];
+  readonly boss?: Readonly<{
+    name: string;
+    hull: number;
+    maxHull: number;
+    shield: number;
+    maxShield: number;
+    position: TelemetryVector3;
+    defeated: boolean;
+    subsystems: readonly Readonly<{
+      id: string;
+      name: string;
+      destroyed: boolean;
+      position: TelemetryVector3;
+      hull: number;
+      maxHull: number;
+    }>[];
+  }> | null;
   readonly stats: {
     readonly wave: number;
     readonly score: number;
@@ -555,6 +591,10 @@ export class SpaceGame {
   private explosions: ExplosionEntity[] = [];
   private pickups: PickupEntity[] = [];
   private spawnQueue: SpawnInstruction[] = [];
+  private boss: CapitalShipBoss | null = null;
+  private bossVictoryTimer = 0;
+  private readonly bossHomePosition = new THREE.Vector3(-196, 22, -334);
+  private readonly bossHomeRotation = new THREE.Euler(-0.03, 0.46, 0.01);
 
   private unlockedPointerTarget = new THREE.Vector2();
   private capturedPointerTarget = new THREE.Vector2();
@@ -1062,6 +1102,22 @@ export class SpaceGame {
       asteroids,
       projectiles,
       pickups,
+      boss: this.boss
+        ? freeze({
+            name: this.boss.name,
+            hull: this.boss.hull,
+            maxHull: this.boss.maxHull,
+            shield: this.boss.shield,
+            maxShield: this.boss.maxShield,
+            position: vectorToTelemetry(this.gameplayCarrier.position),
+            defeated: this.boss.defeated,
+            subsystems: freeze(
+              this.boss.subsystems.map((sub) =>
+                freeze({ id: sub.id, name: sub.name, destroyed: sub.destroyed, position: vectorToTelemetry(sub.worldCenter), hull: sub.hull, maxHull: sub.maxHull }),
+              ),
+            ),
+          })
+        : null,
       stats: freeze({ wave: this.wave, score: this.score, kills: this.kills, combo: this.combo, recovery: this.recoveryActive }),
     });
   }
@@ -1088,8 +1144,8 @@ export class SpaceGame {
     this.planet.rotation.y = 0.2;
     this.planetPivot.add(this.planet);
 
-    this.gameplayCarrier.position.set(-196, 22, -334);
-    this.gameplayCarrier.rotation.set(-0.03, 0.46, 0.01);
+    this.gameplayCarrier.position.copy(this.bossHomePosition);
+    this.gameplayCarrier.rotation.copy(this.bossHomeRotation);
 
     this.menuCarrier.position.set(-2, 13.5, -112);
     this.menuCarrier.rotation.set(-0.08, 0.16, 0.02);
@@ -1282,11 +1338,13 @@ export class SpaceGame {
     this.processSpawns();
     this.maintainAsteroidField();
     this.updateEnemies(dt);
+    this.updateBoss(dt);
     this.updateAsteroids(dt);
     this.updateLasers(dt);
     this.updateExplosions(dt);
     this.updatePickups(dt);
     this.handleCombat();
+    this.resolveBossOutcome(dt);
     if (this.mode !== 'playing') {
       return;
     }
@@ -2041,6 +2099,145 @@ export class SpaceGame {
     this.lasers.push(entity);
   }
 
+  private setBossSubsystemVisibility(boss: CapitalShipBoss | null): void {
+    this.gameplayCarrier.traverse((node) => {
+      if (node.name.startsWith('subsystem_')) {
+        const id = node.name.slice('subsystem_'.length);
+        node.visible = !boss || !boss.subsystems.find((sub) => sub.id === id)?.destroyed;
+      }
+    });
+  }
+
+  private activateBoss(): void {
+    const forward = getBasisVectors(this.waveSpawnOrientation).forward;
+    const right = getBasisVectors(this.waveSpawnOrientation).right;
+    const position = this.waveAnchor.clone().addScaledVector(forward, 190).addScaledVector(right, -30);
+    position.y = this.waveAnchor.y + 12;
+    this.gameplayCarrier.position.copy(position);
+    this.gameplayCarrier.quaternion.copy(this.lookQuaternion(position, this.waveAnchor));
+    this.gameplayCarrier.scale.setScalar(3.2);
+    this.gameplayCarrier.updateMatrixWorld(true);
+    this.boss = createCapitalShipBoss();
+    this.boss.active = true;
+    this.bossVictoryTimer = 0;
+    this.setBossSubsystemVisibility(this.boss);
+    this.updateBossWorldAnchors();
+  }
+
+  private updateBossWorldAnchors(): void {
+    if (!this.boss) return;
+    this.gameplayCarrier.updateMatrixWorld(true);
+    for (const sub of this.boss.subsystems) {
+      sub.worldCenter.copy(sub.localCenter).applyMatrix4(this.gameplayCarrier.matrixWorld);
+    }
+    for (const turret of this.boss.turrets) {
+      turret.worldPosition.copy(turret.localOffset).applyMatrix4(this.gameplayCarrier.matrixWorld);
+    }
+  }
+
+  private updateBoss(dt: number): void {
+    const boss = this.boss;
+    if (!boss || boss.defeated) return;
+    this.updateBossWorldAnchors();
+    const hangar = boss.subsystems.find((sub) => sub.type === 'hangar_bay');
+    const tuning = getEnemyAttackTuning('destroyer', Math.max(1, this.wave), this.difficulty);
+    const profile = FLIGHT_PROFILES.destroyer;
+    const scale = this.gameplayCarrier.scale.x;
+    for (const turret of boss.turrets) {
+      turret.fireCooldown -= dt;
+      if (turret.destroyed || turret.fireCooldown > 0) continue;
+      // Ventral batteries go dark once the flight deck is gone.
+      if (hangar?.destroyed && turret.localOffset.y < 0) continue;
+      const distance = turret.worldPosition.distanceTo(this.playerRoot.position);
+      if (distance > 320) {
+        turret.fireCooldown = 0.6;
+        continue;
+      }
+      const aim = solveInterceptCourse(turret.worldPosition, this.playerRoot.position, this.playerVelocity, profile.projectileSpeed).direction;
+      const spread = THREE.MathUtils.lerp(0.075, 0.025, tuning.accuracy);
+      const direction = aim.clone().add(new THREE.Vector3(this.randomRange(-spread, spread), this.randomRange(-spread, spread), this.randomRange(-spread, spread))).normalize();
+      this.spawnLaserEntity({
+        kind: 'enemy',
+        ownerId: -turret.id,
+        origin: turret.worldPosition.clone().addScaledVector(direction, 2 * scale),
+        direction,
+        inheritedVelocity: new THREE.Vector3(),
+        damage: 15 * tuning.damageMultiplier * this.encounterScaling.damage,
+        speed: profile.projectileSpeed * 0.9,
+        radius: 0.8,
+        life: profile.projectileLifetime,
+        maxDistance: Math.max(profile.projectileRange, 360),
+      });
+      this.audio.playLaser(true, 20);
+      const hullRatio = boss.hull / boss.maxHull;
+      turret.fireCooldown = (2.2 + this.randomRange(0.2, 1.4)) * tuning.cooldownMultiplier * (0.75 + hullRatio * 0.25);
+    }
+  }
+
+  private handleBossLaserHits(): void {
+    const boss = this.boss;
+    if (!boss || boss.defeated) return;
+    const scale = this.gameplayCarrier.scale.x;
+    const hullCenter = this.gameplayCarrier.position;
+    for (const laser of [...this.lasers]) {
+      if (laser.kind !== 'player' || boss.defeated) continue;
+      let hitSub: CapitalShipSubsystem | null = null;
+      let bestTime = Infinity;
+      for (const sub of boss.subsystems) {
+        if (sub.destroyed) continue;
+        const time = segmentSphereIntersection(laser.previousPosition, laser.object.position, sub.worldCenter, sub.radius * scale * 0.85 + laser.radius);
+        if (time !== null && time < bestTime) {
+          bestTime = time;
+          hitSub = sub;
+        }
+      }
+      if (hitSub) {
+        this.removeLaser(laser);
+        const wasDestroyed = hitSub.destroyed;
+        const result = damageBossSubsystem(boss, hitSub.id, laser.damage);
+        this.spawnSpark(laser.object.position, hitSub.type === 'bridge' && !canDamageBridge(boss) ? 0x7fe4ff : 0xffb36b, 1.4);
+        if (result.destroyed && !wasDestroyed) {
+          this.onBossSubsystemDestroyed(hitSub);
+        }
+        continue;
+      }
+      if (segmentSphereIntersection(laser.previousPosition, laser.object.position, hullCenter, 5 * scale + laser.radius) !== null) {
+        this.removeLaser(laser);
+        damageBossHullDirect(boss, laser.damage * 0.5);
+        this.spawnSpark(laser.object.position, boss.shield > 0 ? 0x7fe4ff : 0xff8f63, 1.1);
+      }
+    }
+  }
+
+  private onBossSubsystemDestroyed(sub: CapitalShipSubsystem): void {
+    this.spawnExplosion(sub.worldCenter, 6, sub.type === 'shield_generator' ? 0x7fe4ff : 0xff945a);
+    this.audio.playExplosion(3.6);
+    this.score += sub.type === 'bridge' ? 2500 : 600;
+    this.setBossSubsystemVisibility(this.boss);
+    this.spawnPickup('shield', sub.worldCenter.clone(), 40, 0.8);
+    this.spawnPickup('hull', sub.worldCenter.clone().add(new THREE.Vector3(3, 1, 0)), 30, 0.8);
+    this.pickupMessage = `${sub.name.toUpperCase()} DESTROYED`;
+    this.pickupMessageTimer = 3;
+  }
+
+  private resolveBossOutcome(dt: number): void {
+    const boss = this.boss;
+    if (!boss || !boss.defeated || this.mode !== 'playing') return;
+    if (this.bossVictoryTimer === 0) {
+      this.score += 5000;
+      this.setBossSubsystemVisibility(null);
+      this.audio.playExplosion(4);
+    }
+    this.bossVictoryTimer += dt;
+    if (Math.floor(this.bossVictoryTimer * 6) !== Math.floor((this.bossVictoryTimer - dt) * 6)) {
+      const offset = new THREE.Vector3(this.randomRange(-9, 9), this.randomRange(-4, 6), this.randomRange(-12, 12)).applyQuaternion(this.gameplayCarrier.quaternion);
+      this.spawnExplosion(this.gameplayCarrier.position.clone().add(offset), this.randomRange(4, 8), 0xffa15a);
+    }
+    if (this.bossVictoryTimer > 3.2) {
+      this.endGame('victory', 'The Leviathan is broken. The blockade is lifted.');
+    }
+  }
+
   private refreshEnvironmentCollisionBounds(): void {
     this.gameplayCarrier.updateMatrixWorld(true);
     this.planetCollisionBounds.setFromObject(this.planetPivot);
@@ -2192,6 +2389,8 @@ export class SpaceGame {
         }
       }
     }
+
+    this.handleBossLaserHits();
 
     for (const asteroid of [...this.asteroids]) {
       for (const laser of [...this.lasers]) {
@@ -2495,6 +2694,9 @@ export class SpaceGame {
     this.environmentSpeed = config.environmentSpeed;
     this.waveAnchor.copy(this.playerRoot.position);
     this.waveSpawnOrientation.copy(this.playerRoot.quaternion);
+    if (isVictoryWave(wave)) {
+      this.activateBoss();
+    }
 
     const combatGap = wave === 1 ? 0.92 : wave === 2 ? 0.82 : 0.68;
     const bonusGap = wave <= 2 ? 1.05 : 0.86;
@@ -2520,6 +2722,10 @@ export class SpaceGame {
   }
 
   private advanceWaves(dt: number): void {
+    if (this.boss && !this.boss.defeated) {
+      this.nextWaveDelay = 0;
+      return;
+    }
     const activeCombat = this.enemies.filter((enemy) => isCombatShip(enemy.shipClass)).length;
     const pendingCombat = this.spawnQueue.reduce((total, spawn) => total + (spawn.type === 'enemy' && spawn.shipClass && isCombatShip(spawn.shipClass) ? 1 : 0), 0);
     if (activeCombat === 0 && pendingCombat === 0) {
@@ -2550,6 +2756,13 @@ export class SpaceGame {
     }
     if (this.currentBoundaryLoad > 0.72) {
       return 'Boundary advisory — you can recover out wide, but arc back before the edge closes in.';
+    }
+    if (this.boss && !this.boss.defeated) {
+      const remaining = this.boss.subsystems.filter((sub) => !sub.destroyed).length;
+      const shieldPct = Math.round((this.boss.shield / this.boss.maxShield) * 100);
+      return this.boss.shield > 0
+        ? `${this.boss.name} — shields ${shieldPct}%. Destroy the shield domes, then strike the bridge (${remaining}/4 systems online).`
+        : `${this.boss.name} — shields down! Hit the bridge tower (${remaining}/4 systems online).`;
     }
     if (this.nextWaveDelay > 0) {
       return isVictoryWave(this.wave) ? 'Sector clear. Hold formation...' : `Wave ${this.wave} clear. Next combat contacts in ${this.nextWaveDelay.toFixed(1)}s`;
@@ -2601,6 +2814,16 @@ export class SpaceGame {
       recovery: this.recoveryActive,
       captureActive: this.isMouseCaptureActive(),
       difficulty: this.difficulty,
+      boss: this.boss
+        ? {
+            name: this.boss.name,
+            hull: Math.round(this.boss.hull),
+            maxHull: this.boss.maxHull,
+            shield: Math.round(this.boss.shield),
+            maxShield: this.boss.maxShield,
+            subsystems: this.boss.subsystems.map((sub) => ({ id: sub.id, name: sub.name, destroyed: sub.destroyed, hull: Math.round(sub.hull), maxHull: sub.maxHull })),
+          }
+        : null,
     });
   }
 
@@ -2649,6 +2872,12 @@ export class SpaceGame {
   }
 
   private resetGameplayState(): void {
+    this.boss = null;
+    this.bossVictoryTimer = 0;
+    this.gameplayCarrier.position.copy(this.bossHomePosition);
+    this.gameplayCarrier.rotation.copy(this.bossHomeRotation);
+    this.gameplayCarrier.scale.setScalar(1.45);
+    this.setBossSubsystemVisibility(null);
     this.spawnQueue = [];
     this.spawnClock = 0;
     this.nextWaveDelay = 0;

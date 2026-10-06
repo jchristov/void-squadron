@@ -74,10 +74,11 @@ app.innerHTML = `
     <div class="hud-score"><span class="meta-label">COMBAT SCORE</span><strong id="score">000000</strong><span id="combo" class="amber"></span></div>
     <div class="reticle" aria-hidden="true"><span></span><i></i></div>
     <aside class="upgrade-panel" aria-label="Permanent spacecraft upgrades"><div class="upgrade-title">PERMANENT UPGRADES <span>THIS SHIP</span></div><div class="upgrade-row"><span>HULL</span><div class="upgrade-track"><i id="upgrade-hull-bar"></i></div><b id="upgrade-hull-level">0 / 10</b></div><div class="upgrade-row"><span>DEFENSE</span><div class="upgrade-track"><i id="upgrade-defense-bar"></i></div><b id="upgrade-defense-level">0 / 10</b></div><div class="upgrade-row"><span>ATTACK</span><div class="upgrade-track"><i id="upgrade-attack-bar"></i></div><b id="upgrade-attack-level">0 / 10</b></div><div class="upgrade-effects" id="upgrade-effects"></div></aside>
+    <aside id="boss-card" class="boss-card hidden" aria-label="Capital ship status"><div class="boss-head"><span id="boss-name">THE LEVIATHAN</span><b id="boss-pct">100%</b></div><div class="boss-bar shield"><i id="boss-shield-bar"></i></div><div class="boss-bar hull"><i id="boss-hull-bar"></i></div><div class="boss-chips" id="boss-chips"></div></aside>
     <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
     <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
-    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="pickup">+ SUPPLY</span></div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · ▲/▼: ALTITUDE</div></aside>
+    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="pickup">+ SUPPLY</span><span class="boss">■ CAPITAL</span></div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · ▲/▼: ALTITUDE</div></aside>
     <div id="recovery-status" class="recovery-status" role="status" aria-live="polite"></div>
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
@@ -129,18 +130,25 @@ function drawRadar() {
   ctx.beginPath(); ctx.moveTo(center - radius, center); ctx.lineTo(center + radius, center); ctx.moveTo(center, center - radius); ctx.lineTo(center, center + radius); ctx.stroke();
   ctx.fillStyle = '#83e5e7'; ctx.beginPath(); ctx.moveTo(center, center - 9); ctx.lineTo(center + 5, center + 6); ctx.lineTo(center - 5, center + 6); ctx.closePath(); ctx.fill();
   let nearest = Infinity;
-  const contacts: { position: { x: number; y: number; z: number }; kind: 'hostile' | 'neutral' | 'pickup' }[] = telemetry.enemies.map(enemy => ({position: enemy.position, kind: enemy.ship === 'shuttle' || enemy.ship === 'freighter' ? 'neutral' : 'hostile'}));
+  const contacts: { position: { x: number; y: number; z: number }; kind: 'hostile' | 'neutral' | 'pickup' | 'boss' | 'system' }[] = telemetry.enemies.map(enemy => ({position: enemy.position, kind: enemy.ship === 'shuttle' || enemy.ship === 'freighter' ? 'neutral' : 'hostile'}));
+  const bossTelemetry = telemetry.boss && !telemetry.boss.defeated ? telemetry.boss : null;
+  if (bossTelemetry) {
+    contacts.push({ position: bossTelemetry.position, kind: 'boss' });
+    bossTelemetry.subsystems.filter(sub => !sub.destroyed).forEach(sub => contacts.push({ position: sub.position, kind: 'system' }));
+  }
   const supplies = (telemetry as typeof telemetry & { pickups?: readonly {position: {x:number;y:number;z:number}}[] }).pickups;
   supplies?.forEach(pickup => contacts.push({position:pickup.position,kind:'pickup'}));
   for (const contact of contacts) {
     const local = relativeRadarPosition(contact.position, telemetry.player.position, telemetry.player.orientation);
     const projected = projectRadarContact(local, radarRange);
-    if (contact.kind === 'hostile') nearest = Math.min(nearest, projected.distance);
+    if (contact.kind === 'hostile' || contact.kind === 'boss') nearest = Math.min(nearest, projected.distance);
     const x = center + projected.x * radius, y = center + projected.y * radius;
     ctx.globalAlpha = projected.edge ? .65 : 1;
-    ctx.strokeStyle = ctx.fillStyle = contact.kind === 'hostile' ? '#ff776c' : contact.kind === 'neutral' ? '#ffbf69' : '#83e5e7';
+    ctx.strokeStyle = ctx.fillStyle = contact.kind === 'hostile' ? '#ff776c' : contact.kind === 'neutral' ? '#ffbf69' : contact.kind === 'boss' || contact.kind === 'system' ? '#ff4fa3' : '#83e5e7';
     ctx.lineWidth = 2;
     ctx.beginPath();
+    if (contact.kind === 'boss') { ctx.lineWidth = 2.5; ctx.strokeRect(x - 9, y - 9, 18, 18); ctx.fillRect(x - 4, y - 4, 8, 8); continue; }
+    if (contact.kind === 'system') { ctx.fillRect(x - 2, y - 2, 4, 4); continue; }
     if (contact.kind === 'pickup') { ctx.moveTo(x-4,y);ctx.lineTo(x+4,y);ctx.moveTo(x,y-4);ctx.lineTo(x,y+4);ctx.stroke(); }
     else { ctx.moveTo(x,y-5);ctx.lineTo(x+5,y);ctx.lineTo(x,y+5);ctx.lineTo(x-5,y);ctx.closePath();if(contact.kind==='hostile')ctx.fill();else ctx.stroke(); }
     if (Math.abs(local.y)>35) {ctx.font='14px monospace';ctx.fillText(local.y>0?'▲':'▼',x+7,y+4);}
@@ -182,6 +190,16 @@ function update(state: GameSnapshot) {
   }
   text('upgrade-effects', `HULL ${state.maxHull} · SHIELD ${state.maxShield} · DAMAGE ${state.attackDamage}`);
   const ship = { ...SHIPS[state.ship], hull: state.maxHull, shield: state.maxShield };
+  const boss = state.boss;
+  show('boss-card', Boolean(boss) && state.mode !== 'ended');
+  if (boss) {
+    text('boss-name', boss.name.toUpperCase());
+    text('boss-pct', `${Math.round((boss.hull + boss.shield) / (boss.maxHull + boss.maxShield) * 100)}%`);
+    el('boss-shield-bar').style.width = `${boss.shield / boss.maxShield * 100}%`;
+    el('boss-hull-bar').style.width = `${boss.hull / boss.maxHull * 100}%`;
+    const chips = boss.subsystems.map(sub => `<span class="boss-chip ${sub.destroyed ? 'down' : ''}" title="${sub.name}"><em>${sub.name.replace(/ (Shield Dome|Flight Deck|Bridge Tower)/, m => ({ ' Shield Dome': ' DOME', ' Flight Deck': ' DECK', ' Bridge Tower': ' BRIDGE' } as Record<string, string>)[m]).toUpperCase()}</em><i style="width:${sub.destroyed ? 0 : sub.hull / sub.maxHull * 100}%"></i></span>`).join('');
+    if (el('boss-chips').innerHTML !== chips) el('boss-chips').innerHTML = chips;
+  }
   text('wave', String(state.wave).padStart(2, '0')); text('enemies', state.enemies);
   text('score', String(state.score).padStart(6, '0')); text('combo', state.combo > 1 ? `${state.combo}× CHAIN` : '');
   text('shield-value', Math.ceil(state.shield)); text('hull-value', Math.ceil(state.hull));
