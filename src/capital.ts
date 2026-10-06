@@ -191,11 +191,12 @@ export type BossPhase = 'shielded' | 'exposed' | 'critical' | 'defeated';
 
 export const BOSS_TUNING = {
   hullHitMultiplier: 0.3,
-  turretBaseCooldown: 2.4,
-  turretCooldownJitter: 1.5,
+  turretBaseCooldown: 3.9,
+  turretCooldownJitter: 2.4,
   exposedRageMultiplier: 0.8,
   criticalRageMultiplier: 0.62,
-  turretDamage: 13,
+  turretDamage: 11.5,
+  turretLeadFactor: 0.85,
   hangarDarkensVentralTurrets: true,
 } as const;
 
@@ -218,3 +219,17 @@ export function isTurretOnline(boss: CapitalShipBoss, turret: CapitalShipTurret)
   const hangar = boss.subsystems.find((sub) => sub.type === 'hangar_bay');
   return !(BOSS_TUNING.hangarDarkensVentralTurrets && hangar?.destroyed && turret.localOffset.y < 0);
 }
+
+export interface BossDifficultyScale {
+  damage: number;
+  cooldown: number;
+  lead: number;
+  spread: number;
+}
+
+/** Boss-specific pressure per difficulty; tuned with headless autopilot runs (see docs). */
+export const BOSS_DIFFICULTY: Record<'relaxed' | 'standard' | 'veteran', BossDifficultyScale> = {
+  relaxed: { damage: 0.72, cooldown: 1.25, lead: 0.7, spread: 1.3 },
+  standard: { damage: 1, cooldown: 1, lead: BOSS_TUNING.turretLeadFactor, spread: 1 },
+  veteran: { damage: 1.15, cooldown: 0.92, lead: 0.89, spread: 0.9 },
+};

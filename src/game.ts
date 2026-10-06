@@ -85,6 +85,7 @@ import {
   getBossTurretCooldown,
   isTurretOnline,
   BOSS_TUNING,
+  BOSS_DIFFICULTY,
   type BossPhase,
   type CapitalShipBoss,
   type CapitalShipSubsystem,
@@ -602,7 +603,7 @@ export class SpaceGame {
   private bossPhase: BossPhase | null = null;
   private bossShieldFlash = 0;
   private bossFxTimer = 0;
-  private bossVisuals: { turrets: Map<number, THREE.Group>; shield: THREE.Mesh } | null = null;
+  private bossVisuals: { turrets: Map<number, { group: THREE.Group; barrelMat: THREE.MeshStandardMaterial; glow: THREE.Mesh; flash: number }>; shield: THREE.Mesh } | null = null;
   private readonly bossHomePosition = new THREE.Vector3(-196, 22, -334);
   private readonly bossHomeRotation = new THREE.Euler(-0.03, 0.46, 0.01);
 
@@ -2140,29 +2141,35 @@ export class SpaceGame {
 
   private clearBossVisuals(): void {
     if (!this.bossVisuals) return;
-    this.bossVisuals.turrets.forEach((group) => disposeObject3D(group));
+    this.bossVisuals.turrets.forEach((entry) => disposeObject3D(entry.group));
     disposeObject3D(this.bossVisuals.shield);
     this.bossVisuals = null;
   }
 
   private buildBossVisuals(boss: CapitalShipBoss): void {
     this.clearBossVisuals();
-    const baseMat = new THREE.MeshStandardMaterial({ color: 0x59657a, emissive: 0x1a0d14, roughness: 0.4, metalness: 0.85 });
-    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x9aa6b8, emissive: 0xff2a55, emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.8 });
-    const turrets = new Map<number, THREE.Group>();
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x6c778c, emissive: 0x1a0d14, roughness: 0.4, metalness: 0.85 });
+    const glowGeometry = new THREE.SphereGeometry(0.34, 12, 10);
+    const turrets = new Map<number, { group: THREE.Group; barrelMat: THREE.MeshStandardMaterial; glow: THREE.Mesh; flash: number }>();
     for (const turret of boss.turrets) {
       const group = new THREE.Group();
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 0.4, 10), baseMat);
-      group.add(base);
-      for (const side of [-0.18, 0.18]) {
-        const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.5), barrelMat);
-        barrel.position.set(side, 0.12, 0.85);
+      const barrelMat = new THREE.MeshStandardMaterial({ color: 0xaab5c8, emissive: 0xff2a55, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.8 });
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.95, 0.55, 10), baseMat);
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), baseMat);
+      dome.position.y = 0.27;
+      group.add(base, dome);
+      for (const side of [-0.28, 0.28]) {
+        const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 2.1), barrelMat);
+        barrel.position.set(side, 0.36, 1.25);
         group.add(barrel);
       }
+      const glow = new THREE.Mesh(glowGeometry, new THREE.MeshBasicMaterial({ color: 0xff4f8a, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+      glow.position.set(0, 0.36, 2.35);
+      group.add(glow);
+      group.scale.setScalar(2.1);
       group.position.copy(turret.localOffset);
-      group.userData.sign = turret.localOffset.y < 0 ? -1 : 1;
       this.gameplayCarrier.add(group);
-      turrets.set(turret.id, group);
+      turrets.set(turret.id, { group, barrelMat, glow, flash: 0 });
     }
     const shield = new THREE.Mesh(
       new THREE.SphereGeometry(1, 32, 20),
@@ -2185,12 +2192,18 @@ export class SpaceGame {
     material.color.setHex(this.bossShieldFlash > 0.2 ? 0xffffff : ratio < 0.35 ? 0xff9ec2 : 0x6fe3ff);
     visuals.shield.visible = material.opacity > 0.004;
     for (const turret of boss.turrets) {
-      const group = visuals.turrets.get(turret.id);
-      if (!group) continue;
-      group.visible = !turret.destroyed;
-      if (isTurretOnline(boss, turret)) {
-        group.lookAt(this.playerRoot.position);
+      const entry = visuals.turrets.get(turret.id);
+      if (!entry) continue;
+      entry.group.visible = !turret.destroyed;
+      const online = isTurretOnline(boss, turret);
+      if (online) {
+        entry.group.lookAt(this.playerRoot.position);
       }
+      entry.flash = Math.max(0, entry.flash - dt * 4);
+      const charge = online ? 1 - Math.max(0, Math.min(1, turret.fireCooldown / 2)) : 0;
+      entry.barrelMat.emissiveIntensity = online ? 0.45 + charge * 1.1 + entry.flash * 2.4 : 0.05;
+      (entry.glow.material as THREE.MeshBasicMaterial).opacity = online ? 0.2 + charge * 0.5 + entry.flash * 0.5 : 0;
+      entry.glow.scale.setScalar(0.8 + charge * 0.7 + entry.flash * 1.9);
     }
     this.bossFxTimer += dt;
     if (this.bossFxTimer >= 0.22) {
@@ -2244,9 +2257,10 @@ export class SpaceGame {
     this.updateBossVisuals(dt, boss);
     const phase = getBossPhase(boss);
     this.audio.setBossDrone(true, phase === 'critical' ? 1 : phase === 'exposed' ? 0.55 : 0.2);
-    const tuning = getEnemyAttackTuning('destroyer', Math.max(1, this.wave), this.difficulty);
+    const difficulty = BOSS_DIFFICULTY[this.difficulty];
     const profile = FLIGHT_PROFILES.destroyer;
     const scale = this.gameplayCarrier.scale.x;
+    const leadFactor = difficulty.lead;
     for (const turret of boss.turrets) {
       turret.fireCooldown -= dt;
       if (turret.fireCooldown > 0 || !isTurretOnline(boss, turret)) continue;
@@ -2255,8 +2269,10 @@ export class SpaceGame {
         turret.fireCooldown = 0.6;
         continue;
       }
-      const aim = solveInterceptCourse(turret.worldPosition, this.playerRoot.position, this.playerVelocity, profile.projectileSpeed).direction;
-      const spread = THREE.MathUtils.lerp(0.075, 0.025, tuning.accuracy);
+      const aim = solveInterceptCourse(turret.worldPosition, this.playerRoot.position, this.playerVelocity.clone().multiplyScalar(leadFactor), profile.projectileSpeed).direction;
+      // Larger hulls get a wider spread so hitbox size does not dominate survivability.
+      const sizeSpread = clamp(Math.pow(this.playerRadius / 4.45, 0.75), 1, 2.5);
+      const spread = 0.031 * difficulty.spread * sizeSpread;
       const direction = aim.clone().add(new THREE.Vector3(this.randomRange(-spread, spread), this.randomRange(-spread, spread), this.randomRange(-spread, spread))).normalize();
       const origin = turret.worldPosition.clone().addScaledVector(direction, 1.8 * scale);
       this.spawnLaserEntity({
@@ -2265,15 +2281,17 @@ export class SpaceGame {
         origin,
         direction,
         inheritedVelocity: new THREE.Vector3(),
-        damage: BOSS_TUNING.turretDamage * tuning.damageMultiplier * this.encounterScaling.damage,
+        damage: BOSS_TUNING.turretDamage * difficulty.damage * this.encounterScaling.damage,
         speed: profile.projectileSpeed * 0.9,
         radius: 0.8,
         life: profile.projectileLifetime,
         maxDistance: Math.max(profile.projectileRange, 360),
       });
       this.spawnSpark(origin, 0xff5d8a, 1.6);
+      const turretVisual = this.bossVisuals?.turrets.get(turret.id);
+      if (turretVisual) turretVisual.flash = 1;
       this.audio.playLaser(true, 20);
-      turret.fireCooldown = getBossTurretCooldown(phase, tuning.cooldownMultiplier, this.random());
+      turret.fireCooldown = getBossTurretCooldown(phase, difficulty.cooldown, this.random());
     }
   }
 

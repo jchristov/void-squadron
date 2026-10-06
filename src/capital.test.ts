@@ -11,6 +11,7 @@ import {
   getBossTurretCooldown,
   isTurretOnline,
   BOSS_TUNING,
+  BOSS_DIFFICULTY,
   type CapitalShipSubsystem,
 } from './capital.ts';
 
@@ -121,4 +122,13 @@ test('direct hull hits are deliberately weaker than subsystem play', () => {
   const lost = startTotal - (boss.hull + boss.shield);
   assert.ok(lost > 0 && lost <= 100 * BOSS_TUNING.hullHitMultiplier);
   assert.ok(BOSS_TUNING.hullHitMultiplier < 0.5);
+});
+
+test('boss difficulty scale ramps pressure monotonically and keeps lead below perfect', () => {
+  const { relaxed, standard, veteran } = BOSS_DIFFICULTY;
+  assert.ok(relaxed.damage < standard.damage && standard.damage < veteran.damage);
+  assert.ok(relaxed.cooldown > standard.cooldown && standard.cooldown > veteran.cooldown);
+  assert.ok(relaxed.lead < standard.lead && standard.lead < veteran.lead);
+  assert.ok(relaxed.spread > standard.spread && standard.spread > veteran.spread);
+  for (const scale of [relaxed, standard, veteran]) assert.ok(scale.lead < 1 && scale.lead > 0.5);
 });
