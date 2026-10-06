@@ -75,6 +75,10 @@ Wave 5 adds a capital-ship boss, **The Leviathan** (Class VII blockade carrier),
 
 The results screen (victory or defeat) shows flight time, accuracy (shots hit / fired), damage taken (shield + hull absorbed, including regenerated shield), hostiles destroyed, Leviathan time-to-destroy or remaining health, and how many of its four systems you knocked out. Victories also get a **mission rank**: S/A/B/C from accuracy, damage taken, boss kill time and systems destroyed (defeats are unranked). Helpers and thresholds are in `src/summary.ts`, covered by `src/summary.test.ts`.
 
+### Personal records
+
+Each spacecraft keeps its own record in browser local storage: **best mission rank, fastest Leviathan kill, best score and victory count**. The hangar cards show the best rank and boss time (or UNRANKED), and the results screen flags **NEW BEST RANK**, **FASTEST LEVIATHAN KILL** and **NEW HIGH SCORE** when you beat a record. Only victories update rank, boss time and wins; defeats only update the best score. Corrupt or unavailable storage falls back to empty records without breaking play. Logic lives in `src/records.ts`, covered by `src/records.test.ts`.
+
 ### Collision mechanics
 
 Asteroid and spacecraft impacts use relative velocity, mass, and armor to determine damage. Shields absorb incoming damage before the hull; a quiet interval allows shield regeneration, but hull damage is permanent. Impact separation and contact cooldowns prevent a single overlap from applying damage every frame. Boosting into an asteroid is especially dangerous for a lightly armored interceptor.
@@ -92,6 +96,8 @@ Asteroid and spacecraft impacts use relative velocity, mass, and armor to determ
 - `src/capital.test.ts` — boss mechanics and tuning regression tests.
 - `src/summary.ts` — mission summary, accuracy, duration formatting and ranking.
 - `src/summary.test.ts` — summary and ranking tests.
+- `src/records.ts` — per-ship persistent records (rank, boss time, score, wins).
+- `src/records.test.ts` — records persistence and update tests.
 - `src/audio.ts` — locally synthesized combat audio.
 - `src/rules.test.ts` — gameplay-rule regression tests.
 
