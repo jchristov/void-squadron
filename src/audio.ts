@@ -5,6 +5,8 @@ export class GameAudio {
   private engineOscA?: OscillatorNode;
   private engineOscB?: OscillatorNode;
   private muted = false;
+  private bossDroneGain?: GainNode;
+  private bossDroneOscs: OscillatorNode[] = [];
 
   constructor() {
     const AudioCtor = window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -138,7 +140,82 @@ export class GameAudio {
     mid.stop(now + 0.38);
   }
 
+  playBossAlarm(): void {
+    if (!this.context || !this.master || this.muted) return;
+    const now = this.context.currentTime;
+    for (let pulse = 0; pulse < 3; pulse += 1) {
+      const start = now + pulse * 0.55;
+      const osc = this.context.createOscillator();
+      const gain = this.context.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(330, start);
+      osc.frequency.linearRampToValueAtTime(520, start + 0.4);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.07, start + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.45);
+      osc.connect(gain);
+      gain.connect(this.master);
+      osc.start(start);
+      osc.stop(start + 0.5);
+    }
+  }
+
+  playBossStinger(escalate: boolean): void {
+    if (!this.context || !this.master || this.muted) return;
+    const now = this.context.currentTime;
+    const notes = escalate ? [196, 233, 294] : [392, 330, 262];
+    notes.forEach((freq, index) => {
+      const start = now + index * 0.12;
+      const osc = this.context!.createOscillator();
+      const gain = this.context!.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.06, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
+      osc.connect(gain);
+      gain.connect(this.master!);
+      osc.start(start);
+      osc.stop(start + 0.4);
+    });
+  }
+
+  /** Low looping dread drone for the capital fight; intensity 0..1 raises volume and pitch. */
+  setBossDrone(active: boolean, intensity: number): void {
+    if (!this.context || !this.master) return;
+    if (active && this.bossDroneOscs.length === 0) {
+      this.bossDroneGain = this.context.createGain();
+      this.bossDroneGain.gain.value = 0;
+      this.bossDroneGain.connect(this.master);
+      for (const freq of [48, 50.5]) {
+        const osc = this.context.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq;
+        osc.connect(this.bossDroneGain);
+        osc.start();
+        this.bossDroneOscs.push(osc);
+      }
+    }
+    if (!this.bossDroneGain) return;
+    const now = this.context.currentTime;
+    const level = this.muted || !active ? 0 : 0.012 + Math.min(1, Math.max(0, intensity)) * 0.03;
+    this.bossDroneGain.gain.cancelScheduledValues(now);
+    this.bossDroneGain.gain.linearRampToValueAtTime(level, now + 0.4);
+    this.bossDroneOscs.forEach((osc, index) => {
+      osc.frequency.cancelScheduledValues(now);
+      osc.frequency.linearRampToValueAtTime((index === 0 ? 48 : 50.5) * (1 + intensity * 0.35), now + 0.4);
+    });
+    if (!active && level === 0) {
+      const oscs = this.bossDroneOscs;
+      this.bossDroneOscs = [];
+      window.setTimeout(() => oscs.forEach((osc) => { try { osc.stop(); osc.disconnect(); } catch { /* already stopped */ } }), 500);
+    }
+  }
+
   dispose(): void {
+    this.bossDroneOscs.forEach((osc) => { try { osc.stop(); } catch { /* already stopped */ } });
+    this.bossDroneOscs = [];
+    this.bossDroneGain = undefined;
     this.engineOscA?.stop?.();
     this.engineOscB?.stop?.();
     this.engineOscA?.disconnect?.();

@@ -7,6 +7,10 @@ import {
   canDamageBridge,
   damageBossSubsystem,
   damageBossHullDirect,
+  getBossPhase,
+  getBossTurretCooldown,
+  isTurretOnline,
+  BOSS_TUNING,
   type CapitalShipSubsystem,
 } from './capital.ts';
 
@@ -67,3 +71,54 @@ test('destroying hangar bay inflicts collateral hull damage', () => {
   assert.ok(boss.hull < initialHull);
 });
 
+
+test('boss phases escalate from shielded to exposed to critical to defeated', () => {
+  const boss = createCapitalShipBoss();
+  assert.equal(getBossPhase(boss), 'shielded');
+  for (const id of ['shield_gen_port', 'shield_gen_starboard']) damageBossSubsystem(boss, id, 99999);
+  assert.equal(boss.shield, 0);
+  assert.equal(getBossPhase(boss), 'exposed');
+  boss.hull = boss.maxHull * 0.3;
+  assert.equal(getBossPhase(boss), 'critical');
+  boss.defeated = true;
+  assert.equal(getBossPhase(boss), 'defeated');
+});
+
+test('turret cooldown shrinks in later phases and respects difficulty', () => {
+  const shielded = getBossTurretCooldown('shielded', 1, 0.5);
+  const exposed = getBossTurretCooldown('exposed', 1, 0.5);
+  const critical = getBossTurretCooldown('critical', 1, 0.5);
+  assert.ok(shielded > exposed && exposed > critical);
+  assert.ok(getBossTurretCooldown('shielded', 1.3, 0.5) > shielded);
+  assert.ok(getBossTurretCooldown('critical', 0, 0) >= BOSS_TUNING.turretBaseCooldown * BOSS_TUNING.criticalRageMultiplier * 0.5 - 1e-9);
+});
+
+test('ventral turrets go offline only after the hangar bay is destroyed', () => {
+  const boss = createCapitalShipBoss();
+  const ventral = boss.turrets.find((turret) => turret.localOffset.y < 0)!;
+  const dorsal = boss.turrets.find((turret) => turret.localOffset.y > 0)!;
+  assert.equal(isTurretOnline(boss, ventral), true);
+  damageBossSubsystem(boss, 'hangar_bay', 99999);
+  assert.equal(isTurretOnline(boss, ventral), false);
+  assert.equal(isTurretOnline(boss, dorsal), true);
+});
+
+test('wave 5 flow: domes drop shields, bridge becomes vulnerable, bridge kill defeats the boss', () => {
+  const boss = createCapitalShipBoss();
+  damageBossSubsystem(boss, 'shield_gen_port', 99999);
+  assert.ok(boss.shield <= boss.maxShield * 0.5);
+  damageBossSubsystem(boss, 'shield_gen_starboard', 99999);
+  assert.equal(canDamageBridge(boss), true);
+  const result = damageBossSubsystem(boss, 'bridge', 99999);
+  assert.equal(result.destroyed, true);
+  assert.equal(boss.defeated, true);
+});
+
+test('direct hull hits are deliberately weaker than subsystem play', () => {
+  const boss = createCapitalShipBoss();
+  const startTotal = boss.hull + boss.shield;
+  damageBossHullDirect(boss, 100 * BOSS_TUNING.hullHitMultiplier);
+  const lost = startTotal - (boss.hull + boss.shield);
+  assert.ok(lost > 0 && lost <= 100 * BOSS_TUNING.hullHitMultiplier);
+  assert.ok(BOSS_TUNING.hullHitMultiplier < 0.5);
+});

@@ -47,3 +47,12 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 @media(max-width:640px){.boss-card{top:140px;width:92%;padding:9px 11px}.boss-chip{font-size:6px}}
 @media(max-height:700px) and (min-width:641px){.boss-card{top:86px;padding:9px 14px}}
 #hud:has(.boss-card:not(.hidden)) .combat-message{top:calc(124px + 150px);left:20%;right:20%}
+
+.boss-phase{font-style:normal;font-size:9px;letter-spacing:1.6px;padding:3px 8px;border:1px solid #83e5e788;color:var(--cyan);margin:0 auto 0 14px;align-self:center}.boss-phase[data-phase="exposed"]{color:var(--amber);border-color:#ffbf6988}.boss-phase[data-phase="critical"]{color:#ff776c;border-color:#ff776c99;animation:bossblink .7s steps(2) infinite}
+@keyframes bossblink{50%{opacity:.35}}
+.boss-banner{position:absolute;left:0;right:0;top:34%;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center;pointer-events:none;z-index:15;padding:22px 0;background:linear-gradient(90deg,transparent,#2a0716cc 22%,#2a0716cc 78%,transparent);border-top:1px solid #ff4fa355;border-bottom:1px solid #ff4fa355;font-family:Consolas,monospace}
+.boss-banner span{font-size:12px;letter-spacing:6px;color:#ff4fa3;animation:bossblink .6s steps(2) 6}.boss-banner strong{font:800 clamp(34px,5.4vw,70px)/1 'Arial Narrow','Impact',sans-serif;letter-spacing:6px;color:#fff;text-shadow:0 0 30px #ff4fa3aa}.boss-banner small{font-size:12px;letter-spacing:1.4px;color:#ffc4e0}
+.boss-banner[data-tone="critical"] strong{color:#ffb199;text-shadow:0 0 30px #ff6a2aaa}.boss-banner[data-tone="critical"]{background:linear-gradient(90deg,transparent,#330d05cc 22%,#330d05cc 78%,transparent)}
+.boss-banner.play{animation:bannerin .5s cubic-bezier(.2,.9,.2,1) both,bannerout .6s 4s ease-in forwards}
+@keyframes bannerin{from{opacity:0;transform:scaleY(.2)}to{opacity:1;transform:none}}@keyframes bannerout{to{opacity:0;transform:translateY(-12px)}}
+@media(max-width:640px){.boss-banner span{font-size:9px;letter-spacing:3px}.boss-banner small{font-size:9px;padding:0 6%}}

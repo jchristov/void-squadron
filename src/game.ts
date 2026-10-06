@@ -81,6 +81,11 @@ import {
   canDamageBridge,
   damageBossSubsystem,
   damageBossHullDirect,
+  getBossPhase,
+  getBossTurretCooldown,
+  isTurretOnline,
+  BOSS_TUNING,
+  type BossPhase,
   type CapitalShipBoss,
   type CapitalShipSubsystem,
   type CapitalShipTurret,
@@ -117,6 +122,7 @@ export interface GameSnapshot {
     maxHull: number;
     shield: number;
     maxShield: number;
+    phase: BossPhase;
     subsystems: { id: string; name: string; destroyed: boolean; hull: number; maxHull: number }[];
   } | null;
 }
@@ -593,6 +599,10 @@ export class SpaceGame {
   private spawnQueue: SpawnInstruction[] = [];
   private boss: CapitalShipBoss | null = null;
   private bossVictoryTimer = 0;
+  private bossPhase: BossPhase | null = null;
+  private bossShieldFlash = 0;
+  private bossFxTimer = 0;
+  private bossVisuals: { turrets: Map<number, THREE.Group>; shield: THREE.Mesh } | null = null;
   private readonly bossHomePosition = new THREE.Vector3(-196, 22, -334);
   private readonly bossHomeRotation = new THREE.Euler(-0.03, 0.46, 0.01);
 
@@ -869,6 +879,7 @@ export class SpaceGame {
     }
     this.releaseMouseCapture(true);
     this.releaseContinuousInput();
+    this.audio.setBossDrone(false, 0);
     this.mode = 'paused';
     this.message = 'Paused';
     this.emitSnapshot(true);
@@ -2122,6 +2133,92 @@ export class SpaceGame {
     this.bossVictoryTimer = 0;
     this.setBossSubsystemVisibility(this.boss);
     this.updateBossWorldAnchors();
+    this.buildBossVisuals(this.boss);
+    this.bossPhase = getBossPhase(this.boss);
+    this.audio.playBossAlarm();
+  }
+
+  private clearBossVisuals(): void {
+    if (!this.bossVisuals) return;
+    this.bossVisuals.turrets.forEach((group) => disposeObject3D(group));
+    disposeObject3D(this.bossVisuals.shield);
+    this.bossVisuals = null;
+  }
+
+  private buildBossVisuals(boss: CapitalShipBoss): void {
+    this.clearBossVisuals();
+    const baseMat = new THREE.MeshStandardMaterial({ color: 0x59657a, emissive: 0x1a0d14, roughness: 0.4, metalness: 0.85 });
+    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x9aa6b8, emissive: 0xff2a55, emissiveIntensity: 0.55, roughness: 0.3, metalness: 0.8 });
+    const turrets = new Map<number, THREE.Group>();
+    for (const turret of boss.turrets) {
+      const group = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 0.4, 10), baseMat);
+      group.add(base);
+      for (const side of [-0.18, 0.18]) {
+        const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.5), barrelMat);
+        barrel.position.set(side, 0.12, 0.85);
+        group.add(barrel);
+      }
+      group.position.copy(turret.localOffset);
+      group.userData.sign = turret.localOffset.y < 0 ? -1 : 1;
+      this.gameplayCarrier.add(group);
+      turrets.set(turret.id, group);
+    }
+    const shield = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 32, 20),
+      new THREE.MeshBasicMaterial({ color: 0x6fe3ff, transparent: true, opacity: 0.12, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }),
+    );
+    shield.position.set(0, 1, 1.5);
+    shield.scale.set(10.5, 7.5, 15.5);
+    this.gameplayCarrier.add(shield);
+    this.bossVisuals = { turrets, shield };
+  }
+
+  private updateBossVisuals(dt: number, boss: CapitalShipBoss): void {
+    const visuals = this.bossVisuals;
+    if (!visuals) return;
+    this.bossShieldFlash = Math.max(0, this.bossShieldFlash - dt * 3);
+    const material = visuals.shield.material as THREE.MeshBasicMaterial;
+    const ratio = boss.shield / boss.maxShield;
+    const pulse = 0.5 + Math.sin(performance.now() * 0.003) * 0.5;
+    material.opacity = boss.shield > 0 ? 0.035 + ratio * 0.06 + pulse * 0.02 + this.bossShieldFlash * 0.4 : 0;
+    material.color.setHex(this.bossShieldFlash > 0.2 ? 0xffffff : ratio < 0.35 ? 0xff9ec2 : 0x6fe3ff);
+    visuals.shield.visible = material.opacity > 0.004;
+    for (const turret of boss.turrets) {
+      const group = visuals.turrets.get(turret.id);
+      if (!group) continue;
+      group.visible = !turret.destroyed;
+      if (isTurretOnline(boss, turret)) {
+        group.lookAt(this.playerRoot.position);
+      }
+    }
+    this.bossFxTimer += dt;
+    if (this.bossFxTimer >= 0.22) {
+      this.bossFxTimer = 0;
+      for (const sub of boss.subsystems) {
+        if (!sub.destroyed) continue;
+        const jitter = new THREE.Vector3(this.randomRange(-3, 3), this.randomRange(-2, 3), this.randomRange(-3, 3)).multiplyScalar(this.gameplayCarrier.scale.x * 0.5);
+        this.spawnExplosion(sub.worldCenter.clone().add(jitter), 0.9, this.random() < 0.5 ? 0x3a3a42 : 0xff8a3a);
+      }
+      if (boss.hull / boss.maxHull < 0.5) {
+        const point = new THREE.Vector3(this.randomRange(-6, 6), this.randomRange(-2, 4), this.randomRange(-8, 10)).applyMatrix4(this.gameplayCarrier.matrixWorld);
+        this.spawnExplosion(point, 1.1, this.random() < 0.4 ? 0x3a3a42 : 0xff6a2a);
+      }
+    }
+  }
+
+  private trackBossPhase(boss: CapitalShipBoss): void {
+    const phase = getBossPhase(boss);
+    if (phase === this.bossPhase) return;
+    const previous = this.bossPhase;
+    this.bossPhase = phase;
+    if (phase === 'defeated') return;
+    this.audio.playBossStinger(true);
+    if (phase === 'exposed' && previous === 'shielded') {
+      this.spawnExplosion(this.gameplayCarrier.position.clone(), 9, 0x7fe4ff);
+      this.audio.playExplosion(4.5);
+    }
+    this.emitSnapshot(true);
   }
 
   private updateBossWorldAnchors(): void {
@@ -2137,17 +2234,22 @@ export class SpaceGame {
 
   private updateBoss(dt: number): void {
     const boss = this.boss;
-    if (!boss || boss.defeated) return;
+    if (!boss) return;
+    if (boss.defeated) {
+      this.audio.setBossDrone(false, 0);
+      return;
+    }
     this.updateBossWorldAnchors();
-    const hangar = boss.subsystems.find((sub) => sub.type === 'hangar_bay');
+    this.trackBossPhase(boss);
+    this.updateBossVisuals(dt, boss);
+    const phase = getBossPhase(boss);
+    this.audio.setBossDrone(true, phase === 'critical' ? 1 : phase === 'exposed' ? 0.55 : 0.2);
     const tuning = getEnemyAttackTuning('destroyer', Math.max(1, this.wave), this.difficulty);
     const profile = FLIGHT_PROFILES.destroyer;
     const scale = this.gameplayCarrier.scale.x;
     for (const turret of boss.turrets) {
       turret.fireCooldown -= dt;
-      if (turret.destroyed || turret.fireCooldown > 0) continue;
-      // Ventral batteries go dark once the flight deck is gone.
-      if (hangar?.destroyed && turret.localOffset.y < 0) continue;
+      if (turret.fireCooldown > 0 || !isTurretOnline(boss, turret)) continue;
       const distance = turret.worldPosition.distanceTo(this.playerRoot.position);
       if (distance > 320) {
         turret.fireCooldown = 0.6;
@@ -2156,21 +2258,22 @@ export class SpaceGame {
       const aim = solveInterceptCourse(turret.worldPosition, this.playerRoot.position, this.playerVelocity, profile.projectileSpeed).direction;
       const spread = THREE.MathUtils.lerp(0.075, 0.025, tuning.accuracy);
       const direction = aim.clone().add(new THREE.Vector3(this.randomRange(-spread, spread), this.randomRange(-spread, spread), this.randomRange(-spread, spread))).normalize();
+      const origin = turret.worldPosition.clone().addScaledVector(direction, 1.8 * scale);
       this.spawnLaserEntity({
         kind: 'enemy',
         ownerId: -turret.id,
-        origin: turret.worldPosition.clone().addScaledVector(direction, 2 * scale),
+        origin,
         direction,
         inheritedVelocity: new THREE.Vector3(),
-        damage: 15 * tuning.damageMultiplier * this.encounterScaling.damage,
+        damage: BOSS_TUNING.turretDamage * tuning.damageMultiplier * this.encounterScaling.damage,
         speed: profile.projectileSpeed * 0.9,
         radius: 0.8,
         life: profile.projectileLifetime,
         maxDistance: Math.max(profile.projectileRange, 360),
       });
+      this.spawnSpark(origin, 0xff5d8a, 1.6);
       this.audio.playLaser(true, 20);
-      const hullRatio = boss.hull / boss.maxHull;
-      turret.fireCooldown = (2.2 + this.randomRange(0.2, 1.4)) * tuning.cooldownMultiplier * (0.75 + hullRatio * 0.25);
+      turret.fireCooldown = getBossTurretCooldown(phase, tuning.cooldownMultiplier, this.random());
     }
   }
 
@@ -2194,8 +2297,10 @@ export class SpaceGame {
       if (hitSub) {
         this.removeLaser(laser);
         const wasDestroyed = hitSub.destroyed;
+        const shieldedBridge = hitSub.type === 'bridge' && !canDamageBridge(boss);
+        if (shieldedBridge) this.bossShieldFlash = 1;
         const result = damageBossSubsystem(boss, hitSub.id, laser.damage);
-        this.spawnSpark(laser.object.position, hitSub.type === 'bridge' && !canDamageBridge(boss) ? 0x7fe4ff : 0xffb36b, 1.4);
+        this.spawnSpark(laser.object.position, shieldedBridge ? 0x7fe4ff : 0xffb36b, 1.4);
         if (result.destroyed && !wasDestroyed) {
           this.onBossSubsystemDestroyed(hitSub);
         }
@@ -2203,7 +2308,8 @@ export class SpaceGame {
       }
       if (segmentSphereIntersection(laser.previousPosition, laser.object.position, hullCenter, 5 * scale + laser.radius) !== null) {
         this.removeLaser(laser);
-        damageBossHullDirect(boss, laser.damage * 0.5);
+        damageBossHullDirect(boss, laser.damage * BOSS_TUNING.hullHitMultiplier);
+        if (boss.shield > 0) this.bossShieldFlash = 1;
         this.spawnSpark(laser.object.position, boss.shield > 0 ? 0x7fe4ff : 0xff8f63, 1.1);
       }
     }
@@ -2821,6 +2927,7 @@ export class SpaceGame {
             maxHull: this.boss.maxHull,
             shield: Math.round(this.boss.shield),
             maxShield: this.boss.maxShield,
+            phase: getBossPhase(this.boss),
             subsystems: this.boss.subsystems.map((sub) => ({ id: sub.id, name: sub.name, destroyed: sub.destroyed, hull: Math.round(sub.hull), maxHull: sub.maxHull })),
           }
         : null,
@@ -2864,6 +2971,7 @@ export class SpaceGame {
     this.releaseMouseCapture(true);
     this.releaseContinuousInput();
     this.audio.setEngine(false, 0, false);
+    this.audio.setBossDrone(false, 0);
     if (result === 'defeat') {
       this.spawnExplosion(this.playerRoot.position, 2.5, 0xff6f4d);
       this.audio.playExplosion(3.2);
@@ -2874,6 +2982,10 @@ export class SpaceGame {
   private resetGameplayState(): void {
     this.boss = null;
     this.bossVictoryTimer = 0;
+    this.bossPhase = null;
+    this.bossShieldFlash = 0;
+    this.clearBossVisuals();
+    this.audio.setBossDrone(false, 0);
     this.gameplayCarrier.position.copy(this.bossHomePosition);
     this.gameplayCarrier.rotation.copy(this.bossHomeRotation);
     this.gameplayCarrier.scale.setScalar(1.45);

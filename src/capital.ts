@@ -186,3 +186,35 @@ export function damageBossHullDirect(
   }
   return { defeated: boss.defeated };
 }
+
+export type BossPhase = 'shielded' | 'exposed' | 'critical' | 'defeated';
+
+export const BOSS_TUNING = {
+  hullHitMultiplier: 0.3,
+  turretBaseCooldown: 2.4,
+  turretCooldownJitter: 1.5,
+  exposedRageMultiplier: 0.8,
+  criticalRageMultiplier: 0.62,
+  turretDamage: 13,
+  hangarDarkensVentralTurrets: true,
+} as const;
+
+export function getBossPhase(boss: Pick<CapitalShipBoss, 'hull' | 'maxHull' | 'shield' | 'defeated'>): BossPhase {
+  if (boss.defeated) return 'defeated';
+  if (boss.hull / boss.maxHull <= 0.35) return 'critical';
+  if (boss.shield <= 0) return 'exposed';
+  return 'shielded';
+}
+
+/** Seconds until a turret may fire again; later phases fire faster. `jitter01` is a 0..1 random sample. */
+export function getBossTurretCooldown(phase: BossPhase, difficultyCooldownMultiplier: number, jitter01: number): number {
+  const rage = phase === 'critical' ? BOSS_TUNING.criticalRageMultiplier : phase === 'exposed' ? BOSS_TUNING.exposedRageMultiplier : 1;
+  const base = BOSS_TUNING.turretBaseCooldown + BOSS_TUNING.turretCooldownJitter * Math.min(1, Math.max(0, jitter01));
+  return base * rage * Math.max(0.5, difficultyCooldownMultiplier);
+}
+
+export function isTurretOnline(boss: CapitalShipBoss, turret: CapitalShipTurret): boolean {
+  if (turret.destroyed) return false;
+  const hangar = boss.subsystems.find((sub) => sub.type === 'hangar_bay');
+  return !(BOSS_TUNING.hangarDarkensVentralTurrets && hangar?.destroyed && turret.localOffset.y < 0);
+}

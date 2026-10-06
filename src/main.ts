@@ -74,7 +74,8 @@ app.innerHTML = `
     <div class="hud-score"><span class="meta-label">COMBAT SCORE</span><strong id="score">000000</strong><span id="combo" class="amber"></span></div>
     <div class="reticle" aria-hidden="true"><span></span><i></i></div>
     <aside class="upgrade-panel" aria-label="Permanent spacecraft upgrades"><div class="upgrade-title">PERMANENT UPGRADES <span>THIS SHIP</span></div><div class="upgrade-row"><span>HULL</span><div class="upgrade-track"><i id="upgrade-hull-bar"></i></div><b id="upgrade-hull-level">0 / 10</b></div><div class="upgrade-row"><span>DEFENSE</span><div class="upgrade-track"><i id="upgrade-defense-bar"></i></div><b id="upgrade-defense-level">0 / 10</b></div><div class="upgrade-row"><span>ATTACK</span><div class="upgrade-track"><i id="upgrade-attack-bar"></i></div><b id="upgrade-attack-level">0 / 10</b></div><div class="upgrade-effects" id="upgrade-effects"></div></aside>
-    <aside id="boss-card" class="boss-card hidden" aria-label="Capital ship status"><div class="boss-head"><span id="boss-name">THE LEVIATHAN</span><b id="boss-pct">100%</b></div><div class="boss-bar shield"><i id="boss-shield-bar"></i></div><div class="boss-bar hull"><i id="boss-hull-bar"></i></div><div class="boss-chips" id="boss-chips"></div></aside>
+    <div id="boss-banner" class="boss-banner hidden" role="alert" aria-live="assertive"><span id="boss-banner-kicker"></span><strong id="boss-banner-title"></strong><small id="boss-banner-copy"></small></div>
+    <aside id="boss-card" class="boss-card hidden" aria-label="Capital ship status"><div class="boss-head"><span id="boss-name">THE LEVIATHAN</span><em id="boss-phase" class="boss-phase">SHIELDED</em><b id="boss-pct">100%</b></div><div class="boss-bar shield"><i id="boss-shield-bar"></i></div><div class="boss-bar hull"><i id="boss-hull-bar"></i></div><div class="boss-chips" id="boss-chips"></div></aside>
     <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
     <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="meter boost"><i id="energy-bar"></i></div></div></div>
@@ -156,6 +157,16 @@ function drawRadar() {
   ctx.globalAlpha = 1;
   text('radar-range', Number.isFinite(nearest) ? `NEAREST HOSTILE ${formatSpaceDistance(nearest)}` : 'NO COMBAT CONTACTS');
 }
+let bossBannerTimer = 0;
+function hideBossBanner() { window.clearTimeout(bossBannerTimer); el('boss-banner').classList.add('hidden'); }
+function showBossBanner(kicker: string, title: string, copy: string, tone: 'alert' | 'critical') {
+  const banner = el('boss-banner');
+  text('boss-banner-kicker', kicker); text('boss-banner-title', title); text('boss-banner-copy', copy);
+  banner.dataset.tone = tone;
+  banner.classList.remove('hidden', 'play'); void banner.offsetWidth; banner.classList.add('play');
+  window.clearTimeout(bossBannerTimer);
+  bossBannerTimer = window.setTimeout(() => banner.classList.add('hidden'), 4600);
+}
 function update(state: GameSnapshot) {
   const previous = latest;
   latest = state;
@@ -191,9 +202,17 @@ function update(state: GameSnapshot) {
   text('upgrade-effects', `HULL ${state.maxHull} · SHIELD ${state.maxShield} · DAMAGE ${state.attackDamage}`);
   const ship = { ...SHIPS[state.ship], hull: state.maxHull, shield: state.maxShield };
   const boss = state.boss;
+  if (boss && !previous?.boss) showBossBanner('WARNING · CAPITAL SIGNATURE', boss.name.toUpperCase(), 'Class VII blockade carrier. Destroy both shield domes, then strike the command bridge.', 'alert');
+  else if (boss && previous?.boss && boss.phase !== previous.boss.phase) {
+    if (boss.phase === 'exposed') showBossBanner('SHIELDS COLLAPSED', 'BRIDGE EXPOSED', 'Command tower is vulnerable — strike now. Turret fire intensifies.', 'alert');
+    else if (boss.phase === 'critical') showBossBanner('HULL CRITICAL', 'FINISH IT', 'The Leviathan is venting. Its batteries are firing at full tempo.', 'critical');
+  }
+  if (!boss) hideBossBanner();
   show('boss-card', Boolean(boss) && state.mode !== 'ended');
   if (boss) {
     text('boss-name', boss.name.toUpperCase());
+    text('boss-phase', ({ shielded: 'SHIELDED', exposed: 'SHIELDS DOWN', critical: 'CRITICAL', defeated: 'DESTROYED' } as const)[boss.phase]);
+    el('boss-phase').dataset.phase = boss.phase;
     text('boss-pct', `${Math.round((boss.hull + boss.shield) / (boss.maxHull + boss.maxShield) * 100)}%`);
     el('boss-shield-bar').style.width = `${boss.shield / boss.maxShield * 100}%`;
     el('boss-hull-bar').style.width = `${boss.hull / boss.maxHull * 100}%`;
