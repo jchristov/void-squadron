@@ -12,6 +12,10 @@ import {
   isTurretOnline,
   BOSS_TUNING,
   BOSS_DIFFICULTY,
+  getBossFireTempo,
+  trimBossEscorts,
+  BOSS_ESCORT_LIMIT,
+  canSpawnBossEscort,
   type CapitalShipSubsystem,
 } from './capital.ts';
 
@@ -131,4 +135,48 @@ test('boss difficulty scale ramps pressure monotonically and keeps lead below pe
   assert.ok(relaxed.lead < standard.lead && standard.lead < veteran.lead);
   assert.ok(relaxed.spread > standard.spread && standard.spread > veteran.spread);
   for (const scale of [relaxed, standard, veteran]) assert.ok(scale.lead < 1 && scale.lead > 0.5);
+});
+
+test('boss durability and fire tempo scale with player upgrades but never shrink', () => {
+  const base = createCapitalShipBoss();
+  const scaled = createCapitalShipBoss({ durability: 1.2, count: 1.3, damage: 1.1 });
+  assert.equal(scaled.maxHull, Math.round(base.maxHull * 1.2));
+  assert.equal(scaled.maxShield, Math.round(base.maxShield * 1.2));
+  assert.equal(scaled.shield, scaled.maxShield);
+  scaled.subsystems.forEach((sub, index) => {
+    assert.equal(sub.maxHull, Math.round(base.subsystems[index].maxHull * 1.2));
+    assert.equal(sub.hull, sub.maxHull);
+  });
+  assert.equal(createCapitalShipBoss({ durability: 0.5 }).maxHull, base.maxHull);
+  assert.equal(getBossFireTempo(1), 1);
+  assert.ok(getBossFireTempo(1.3) < 1 && getBossFireTempo(1.3) > 0.85);
+  assert.equal(getBossFireTempo(2), getBossFireTempo(1.3));
+});
+
+test('scaled boss still obeys the subsystem rules', () => {
+  const boss = createCapitalShipBoss({ durability: 1.2 });
+  damageBossSubsystem(boss, 'shield_gen_port', 99999);
+  assert.equal(boss.shield, Math.round(boss.maxShield * 0.5));
+  damageBossSubsystem(boss, 'shield_gen_starboard', 99999);
+  assert.equal(canDamageBridge(boss), true);
+});
+
+test('boss escorts are capped, lightest ships stay, and civilians are untouched', () => {
+  const weights: Record<string, number> = { fighter: 225, interceptor: 164, bomber: 280, destroyer: 480, shuttle: 280, freighter: 350 };
+  const combat = new Set(['fighter', 'interceptor', 'bomber', 'destroyer']);
+  const roster = ['interceptor', 'fighter', 'bomber', 'destroyer', 'interceptor', 'fighter', 'bomber', 'destroyer', 'fighter', 'bomber', 'shuttle', 'freighter'];
+  const trimmed = trimBossEscorts(roster, (ship) => combat.has(ship), (ship) => weights[ship], 6);
+  assert.equal(trimmed.filter((ship) => combat.has(ship)).length, 6);
+  assert.equal(trimmed.includes('destroyer'), false);
+  assert.ok(trimmed.includes('shuttle') && trimmed.includes('freighter'));
+  assert.deepEqual(trimBossEscorts(roster, (ship) => combat.has(ship), (ship) => weights[ship], 99), roster);
+  assert.ok(BOSS_ESCORT_LIMIT.relaxed < BOSS_ESCORT_LIMIT.standard && BOSS_ESCORT_LIMIT.standard < BOSS_ESCORT_LIMIT.veteran);
+});
+
+test('boss escorts spawn only while below the concurrent cap', () => {
+  assert.equal(canSpawnBossEscort(0, 'standard'), true);
+  assert.equal(canSpawnBossEscort(1, 'standard'), true);
+  assert.equal(canSpawnBossEscort(2, 'standard'), false);
+  assert.equal(canSpawnBossEscort(1, 'relaxed'), false);
+  assert.equal(canSpawnBossEscort(2, 'veteran'), true);
 });

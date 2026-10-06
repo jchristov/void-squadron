@@ -110,21 +110,39 @@ export function createCapitalShipTurrets(): CapitalShipTurret[] {
   return turrets;
 }
 
-export function createCapitalShipBoss(): CapitalShipBoss {
-  const subsystems = createCapitalShipSubsystems();
+export interface BossEncounterScaling {
+  count: number;
+  durability: number;
+  damage: number;
+}
+
+/** Scales boss durability and fire tempo with the player's upgrade-driven encounter scaling. */
+export function createCapitalShipBoss(scaling: Partial<BossEncounterScaling> = {}): CapitalShipBoss {
+  const durability = Math.max(1, scaling.durability ?? 1);
+  const subsystems = createCapitalShipSubsystems().map((sub) => {
+    const hull = Math.round(sub.maxHull * durability);
+    return { ...sub, hull, maxHull: hull };
+  });
   const turrets = createCapitalShipTurrets();
+  const hull = Math.round(2400 * durability);
+  const shield = Math.round(1600 * durability);
   return {
     id: 'leviathan',
     name: 'The Leviathan',
-    hull: 2400,
-    maxHull: 2400,
-    shield: 1600,
-    maxShield: 1600,
+    hull,
+    maxHull: hull,
+    shield,
+    maxShield: shield,
     subsystems,
     turrets,
     defeated: false,
     active: false,
   };
+}
+
+/** Extra upgrade-driven combat ships translate into a faster battery cycle (at most ~15%). */
+export function getBossFireTempo(count: number): number {
+  return 1 / (1 + Math.max(0, Math.min(0.3, count - 1)) * 0.5);
 }
 
 export function areShieldGeneratorsDestroyed(boss: CapitalShipBoss): boolean {
@@ -196,7 +214,7 @@ export const BOSS_TUNING = {
   exposedRageMultiplier: 0.8,
   criticalRageMultiplier: 0.62,
   turretDamage: 11.5,
-  turretLeadFactor: 0.85,
+  turretLeadFactor: 0.75,
   hangarDarkensVentralTurrets: true,
 } as const;
 
@@ -229,7 +247,40 @@ export interface BossDifficultyScale {
 
 /** Boss-specific pressure per difficulty; tuned with headless autopilot runs (see docs). */
 export const BOSS_DIFFICULTY: Record<'relaxed' | 'standard' | 'veteran', BossDifficultyScale> = {
-  relaxed: { damage: 0.72, cooldown: 1.25, lead: 0.7, spread: 1.3 },
+  relaxed: { damage: 0.72, cooldown: 1.25, lead: 0.62, spread: 1.3 },
   standard: { damage: 1, cooldown: 1, lead: BOSS_TUNING.turretLeadFactor, spread: 1 },
-  veteran: { damage: 1.15, cooldown: 0.92, lead: 0.89, spread: 0.9 },
+  veteran: { damage: 1.15, cooldown: 0.92, lead: 0.82, spread: 0.9 },
 };
+
+/** Seconds between escort arrivals during the boss wave, and the quiet opening before the first. */
+/** Escort weapon damage multiplier while the boss is alive: the carrier is the threat, not the escorts. */
+export const BOSS_ESCORT_DAMAGE = 0.8;
+export const BOSS_ESCORT_GAP = 3.4;
+export const BOSS_ESCORT_LEAD_IN = 5;
+
+export const BOSS_ESCORT_LIMIT: Record<'relaxed' | 'standard' | 'veteran', number> = { relaxed: 3, standard: 5, veteran: 7 };
+
+/** Keeps the boss the main event: caps combat escorts (heavies dropped first) while leaving civilian targets alone. */
+export function trimBossEscorts<T>(roster: readonly T[], isCombat: (ship: T) => boolean, weight: (ship: T) => number, limit: number): T[] {
+  const combat = roster.filter(isCombat);
+  const keep = new Set(
+    combat
+      .map((ship, index) => ({ ship, index, weight: weight(ship) }))
+      .sort((a, b) => a.weight - b.weight || a.index - b.index)
+      .slice(0, Math.max(0, limit))
+      .map((entry) => entry.index),
+  );
+  let combatIndex = -1;
+  return roster.filter((ship) => {
+    if (!isCombat(ship)) return true;
+    combatIndex += 1;
+    return keep.has(combatIndex);
+  });
+}
+
+export const BOSS_MAX_CONCURRENT_ESCORTS: Record<'relaxed' | 'standard' | 'veteran', number> = { relaxed: 1, standard: 2, veteran: 3 };
+
+/** Escorts trickle in as earlier ones die, so the boss fight never turns into a swarm. */
+export function canSpawnBossEscort(aliveCombatEscorts: number, difficulty: 'relaxed' | 'standard' | 'veteran'): boolean {
+  return aliveCombatEscorts < BOSS_MAX_CONCURRENT_ESCORTS[difficulty];
+}

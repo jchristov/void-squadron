@@ -83,6 +83,13 @@ import {
   damageBossHullDirect,
   getBossPhase,
   getBossTurretCooldown,
+  getBossFireTempo,
+  trimBossEscorts,
+  BOSS_ESCORT_LIMIT,
+  BOSS_ESCORT_GAP,
+  BOSS_ESCORT_DAMAGE,
+  canSpawnBossEscort,
+  BOSS_ESCORT_LEAD_IN,
   isTurretOnline,
   BOSS_TUNING,
   BOSS_DIFFICULTY,
@@ -1429,6 +1436,13 @@ export class SpaceGame {
 
   private processSpawns(): void {
     while (this.spawnQueue.length > 0 && this.spawnQueue[0].delay <= this.spawnClock) {
+      const next = this.spawnQueue[0];
+      if (this.boss && !this.boss.defeated && next.type === 'enemy' && next.shipClass && isCombatShip(next.shipClass)) {
+        const alive = this.enemies.filter((enemy) => isCombatShip(enemy.shipClass)).length;
+        if (!canSpawnBossEscort(alive, this.difficulty)) {
+          return;
+        }
+      }
       const spawn = this.spawnQueue.shift();
       if (!spawn) {
         return;
@@ -2066,7 +2080,7 @@ export class SpaceGame {
         origin,
         direction,
         inheritedVelocity: enemy.velocity.clone().multiplyScalar(0.24),
-        damage: enemy.stats.damage * tuning.damageMultiplier,
+        damage: enemy.stats.damage * tuning.damageMultiplier * (this.boss && !this.boss.defeated ? BOSS_ESCORT_DAMAGE : 1),
         speed: enemy.profile.projectileSpeed,
         radius: enemy.shipClass === 'destroyer' ? 0.74 : enemy.shipClass === 'bomber' ? 0.7 : 0.6,
         life: enemy.profile.projectileLifetime,
@@ -2129,7 +2143,7 @@ export class SpaceGame {
     this.gameplayCarrier.quaternion.copy(this.lookQuaternion(position, this.waveAnchor));
     this.gameplayCarrier.scale.setScalar(3.2);
     this.gameplayCarrier.updateMatrixWorld(true);
-    this.boss = createCapitalShipBoss();
+    this.boss = createCapitalShipBoss(this.encounterScaling);
     this.boss.active = true;
     this.bossVictoryTimer = 0;
     this.setBossSubsystemVisibility(this.boss);
@@ -2291,7 +2305,7 @@ export class SpaceGame {
       const turretVisual = this.bossVisuals?.turrets.get(turret.id);
       if (turretVisual) turretVisual.flash = 1;
       this.audio.playLaser(true, 20);
-      turret.fireCooldown = getBossTurretCooldown(phase, difficulty.cooldown, this.random());
+      turret.fireCooldown = getBossTurretCooldown(phase, difficulty.cooldown * getBossFireTempo(this.encounterScaling.count), this.random());
     }
   }
 
@@ -2809,6 +2823,11 @@ export class SpaceGame {
     for (let index = 0; index < extraCombat; index += 1) {
       roster.push(wave >= 3 && index % 2 === 0 ? 'bomber' : 'interceptor');
     }
+    if (isVictoryWave(wave)) {
+      const trimmed = trimBossEscorts(roster, isCombatShip, (ship) => SHIPS[ship].hull + SHIPS[ship].shield, BOSS_ESCORT_LIMIT[this.difficulty]);
+      roster.length = 0;
+      roster.push(...trimmed);
+    }
     this.wave = wave;
     this.message = `Wave ${wave}: ${config.message}`;
     this.spawnClock = 0;
@@ -2822,7 +2841,8 @@ export class SpaceGame {
       this.activateBoss();
     }
 
-    const combatGap = wave === 1 ? 0.92 : wave === 2 ? 0.82 : 0.68;
+    const bossWave = isVictoryWave(wave);
+    const combatGap = bossWave ? BOSS_ESCORT_GAP : wave === 1 ? 0.92 : wave === 2 ? 0.82 : 0.68;
     const bonusGap = wave <= 2 ? 1.05 : 0.86;
     let combatIndex = 0;
     let bonusIndex = 0;
@@ -2830,7 +2850,7 @@ export class SpaceGame {
       const bonus = !isCombatShip(shipClass);
       const delay = bonus
         ? 1.6 + bonusIndex * bonusGap + this.randomRange(0, 0.28)
-        : 0.8 + combatIndex * combatGap + this.randomRange(0, 0.22);
+        : (bossWave ? BOSS_ESCORT_LEAD_IN : 0.8) + combatIndex * combatGap + this.randomRange(0, 0.22 + (bossWave ? 1.2 : 0));
       this.spawnQueue.push({ type: 'enemy', delay, shipClass });
       if (bonus) bonusIndex += 1; else combatIndex += 1;
     }
