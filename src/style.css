@@ -77,6 +77,13 @@ body[data-mode="playing"] .topbar{height:72px;border-bottom:0}
 .result-stats .meta-label{font-size:7px}
 dialog{max-width:540px;width:calc(100% - 36px);border:1px solid #7998a64d;background:#0b1520;color:#dbe4e9;padding:38px;box-shadow:0 30px 100px #0009}
 dialog::backdrop{background:#000b;backdrop-filter:blur(9px)}
+.manual-dialog{width:min(1000px,calc(100% - 40px));max-width:none;max-height:min(88vh,900px);overflow:auto;padding:clamp(28px,4vw,52px)}
+.manual-dialog form{position:relative}
+.manual-dialog>form>p:first-of-type{max-width:900px}
+.manual-dialog dl{columns:2;column-gap:clamp(28px,5vw,64px)}
+.manual-dialog dt{break-after:avoid}
+.manual-dialog dd{break-inside:avoid}
+.manual-dialog .manual-warning,.manual-dialog .small-copy,.manual-dialog .secondary-button{break-inside:avoid}
 dialog h2{font-size:25px;letter-spacing:2px;margin:17px 0}
 dialog p,dialog dd{font-size:12px;line-height:1.7;color:#91a8b7}
 dialog dl{margin:25px 0}
@@ -91,7 +98,7 @@ dialog dd{margin:7px 0}
 @keyframes impact{0%{opacity:.9}100%{opacity:0}}
 @keyframes reveal{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 @media(max-height:780px) and (min-width:800px){.topbar{height:80px}.launch-button{height:49px}}
-@media(max-width:640px){body{overflow-y:auto}.topbar{height:72px;inset:0 6% auto}.brand{font-size:12px}.brand svg{width:29px}.icon-button{font-size:7px;padding:9px 7px}.icon-button span{margin-left:3px}.eyebrow{font-size:8px;letter-spacing:1.5px}.meta-label{font-size:7px}.launch-button{width:270px;height:49px}.screen-vignette{background:linear-gradient(90deg,#050a11dd,transparent),linear-gradient(0deg,#050a11 15%,transparent 70%)}.hud-mission{top:93px;left:6%;font-size:8px}.hud-mission h2{font-size:10px;letter-spacing:1px}.hud-score{top:94px;right:6%}.hud-score strong{font-size:21px}.hud-mission .eyebrow{display:none}.hud-mission .flex{gap:15px}.hud-bottom{bottom:25px;left:6%;right:6%;gap:22px}.systems{width:190px}.systems .eyebrow{font-size:6px;letter-spacing:1px}.system-row{gap:8px;font-size:7px}.system-row>span{width:39px}.boost-system{width:90px}.boost-system strong{font-size:23px}.boost-system .meta-label{font-size:6px;letter-spacing:.7px}.combat-message{top:23%;left:5%;right:5%;font-size:10px}.modal{width:calc(100% - 40px);padding:30px;max-width:420px}.modal h2{font-size:52px}body[data-mode="playing"],body[data-mode="paused"],body[data-mode="ended"]{overflow:hidden}dialog{padding:27px}}
+@media(max-width:640px){body{overflow-y:auto}.topbar{height:72px;inset:0 6% auto}.brand{font-size:12px}.brand svg{width:29px}.icon-button{font-size:7px;padding:9px 7px}.icon-button span{margin-left:3px}.eyebrow{font-size:8px;letter-spacing:1.5px}.meta-label{font-size:7px}.launch-button{width:270px;height:49px}.screen-vignette{background:linear-gradient(90deg,#050a11dd,transparent),linear-gradient(0deg,#050a11 15%,transparent 70%)}.hud-mission{top:93px;left:6%;font-size:8px}.hud-mission h2{font-size:10px;letter-spacing:1px}.hud-score{top:94px;right:6%}.hud-score strong{font-size:21px}.hud-mission .eyebrow{display:none}.hud-mission .flex{gap:15px}.hud-bottom{bottom:25px;left:6%;right:6%;gap:22px}.systems{width:190px}.systems .eyebrow{font-size:6px;letter-spacing:1px}.system-row{gap:8px;font-size:7px}.system-row>span{width:39px}.boost-system{width:90px}.boost-system strong{font-size:23px}.boost-system .meta-label{font-size:6px;letter-spacing:.7px}.combat-message{top:23%;left:5%;right:5%;font-size:10px}.modal{width:calc(100% - 40px);padding:30px;max-width:420px}.modal h2{font-size:52px}body[data-mode="playing"],body[data-mode="paused"],body[data-mode="ended"]{overflow:hidden}dialog{padding:27px}.manual-dialog{width:calc(100% - 24px);max-height:90vh;padding:24px 20px}.manual-dialog dl{columns:1;column-gap:0}}
 /* Keep the launcher in document flow so short windows cannot cover the launch controls. */
 body:has(#menu:not(.hidden)){overflow-y:auto}
 @media(max-width:640px){.screen-vignette{background:linear-gradient(90deg,#050a11c9,transparent),linear-gradient(0deg,#050a11b0,transparent 70%)}}
@@ -567,7 +574,12 @@ body[data-mode="menu"] .topbar{background:linear-gradient(180deg,rgb(3 8 14 / ca
 .throttle-row .meter{margin:0}
 .throttle-row .meter i{background:var(--cyan)}
 .throttle-row .meter.idle i{background:#ff8b82}
-.boost-system{width:215px}
+.upgrade-panel{width:310px}
+.boost-meter{margin-top:12px}
+.boost-meter .meta-label{display:block;margin-bottom:6px;color:#8bb7c1}
+.boost-meter .boost{margin-top:0}
+@media(max-height:700px) and (min-width:641px){.upgrade-panel{width:260px}}
+@media(max-width:640px){.upgrade-panel{width:65%}.boost-meter .meta-label{font-size:7px;letter-spacing:0}}
 
 /* ===== Mission-complete / mission-failed screens ===== */
 .result-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}

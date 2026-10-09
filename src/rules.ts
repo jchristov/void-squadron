@@ -509,12 +509,12 @@ export const SHIP_TARGET_RADIUS: Record<ShipClass, number> = {
 
 /** Model scale that makes each procedural model hit SHIP_TARGET_RADIUS (measured at scale 1). */
 export const SHIP_MODEL_SCALE: Record<ShipClass, number> = {
-  fighter: 0.7620,
-  interceptor: 0.9285,
-  bomber: 1.1466,
-  shuttle: 1.5467,
-  freighter: 1.7952,
-  destroyer: 1.4049,
+  fighter: 0.8310,
+  interceptor: 0.8360,
+  bomber: 1.2690,
+  shuttle: 1.8450,
+  freighter: 1.9300,
+  destroyer: 1.7320,
 };
 
 export const TORPEDO = {

@@ -11,6 +11,7 @@ import {
   createPlanet,
   createShieldShell,
   createShipModel,
+  getObjectBoundingRadius,
   createSpaceBackdrop,
   disposeObject3D,
 } from './models';
@@ -825,7 +826,7 @@ export class SpaceGame {
   private autoStatus = '';
   private autoBoost = false;
   private autoBrake = false;
-  /** Manual throttle 0..1 (R / F adjust, Z cuts to zero); autopilot flies at full throttle. */
+  /** Manual throttle 0..1 (F raises, R lowers, Z cuts to zero); autopilot flies at full throttle. */
   private throttle = 1;
   private throttleAxis = 0;
   private autoFire = false;
@@ -2893,7 +2894,7 @@ export class SpaceGame {
     const difficultyTuning = getDifficultyTuning(this.difficulty);
     const object = createShipModel(shipClass, { accent: opts.ace ? 0xffd35a : 0xff708c, tint: opts.ace ? 0x9a8a5a : 0x71788a, scale: SHIP_MODEL_SCALE[shipClass] * (opts.ace ? 1.2 : 1) });
     const bounds = new THREE.Box3().setFromObject(object);
-    const collisionRadius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
+    const collisionRadius = getObjectBoundingRadius(object);
     const shieldShell = createShieldShell(collisionRadius, 0x7fe4ff);
     const spawnPosition = opts.position?.clone() ?? this.getSpawnPointAroundAnchor(this.waveAnchor, this.waveSpawnOrientation, this.randomRange(135, 220));
     shieldShell.visible = this.collisionBoundsVisible;
@@ -4803,7 +4804,7 @@ export class SpaceGame {
     this.playerRoot.quaternion.identity();
     const ship = createShipModel(shipClass, { accent: 0x8be3ff, tint: 0x909db3, scale: SHIP_MODEL_SCALE[shipClass] });
     const bounds = new THREE.Box3().setFromObject(ship);
-    const radius = bounds.getBoundingSphere(new THREE.Sphere()).radius;
+    const radius = getObjectBoundingRadius(ship);
     const shield = createShieldShell(radius, 0x86e7ff);
     if (shield.material instanceof THREE.MeshBasicMaterial) {
       shield.material.color.setHex(0x7fe4ff);
@@ -4994,7 +4995,7 @@ export class SpaceGame {
     this.yawAxis = (right ? 1 : 0) - (left ? 1 : 0);
     this.pitchAxis = (up ? 1 : 0) - (down ? 1 : 0);
     this.rollAxis = (rollRight ? 1 : 0) - (rollLeft ? 1 : 0);
-    this.throttleAxis = (this.heldKeys.has('KeyR') ? 1 : 0) - (this.heldKeys.has('KeyF') ? 1 : 0);
+    this.throttleAxis = (this.heldKeys.has('KeyF') ? 1 : 0) - (this.heldKeys.has('KeyR') ? 1 : 0);
   }
 
   private releaseContinuousInput(): void {

@@ -69,7 +69,7 @@ Chapters unlock in order. The first clear of a chapter grants a permanent upgrad
 | Scroll wheel / Q / E | Roll around the ship’s forward axis |
 | Hold left mouse / Space | Fire primary weapons |
 | Hold Shift | Boost while energy is available |
-| R / F | Raise / lower engine **throttle** (100% down to a dead stop); Z = all stop. Shift boost overrides throttle |
+| F / R | Raise / lower engine **throttle** (100% down to a dead stop); Z = all stop. Shift boost overrides throttle |
 | + / − | Zoom the radar in / out |
 | X / right mouse | Fire a homing **proton torpedo** (fighter 4, interceptor 0, bomber 8, shuttle 0, freighter 0, destroyer 6) |
 | M | Toggle mouse capture; during menus enables it for next launch |

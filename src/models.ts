@@ -745,6 +745,22 @@ export function createAsteroid(radius: number, seed: number): THREE.Mesh {
   return mesh;
 }
 
+export function getObjectBoundingRadius(object: THREE.Object3D): number {
+  object.updateMatrixWorld(true);
+  let radius = 0;
+  const vertex = new THREE.Vector3();
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return;
+    const positions = child.geometry.getAttribute('position');
+    if (!positions) return;
+    for (let index = 0; index < positions.count; index += 1) {
+      vertex.fromBufferAttribute(positions, index).applyMatrix4(child.matrixWorld);
+      radius = Math.max(radius, vertex.length());
+    }
+  });
+  return radius;
+}
+
 export function createShieldShell(radius: number, color: number): THREE.Mesh {
   return new THREE.Mesh(
     new THREE.SphereGeometry(radius, 24, 24),
