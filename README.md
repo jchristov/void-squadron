@@ -1,4 +1,4 @@
-# VOID SQUADRON
+# Void Squadron
 
 An original cinematic browser-based 3D space shooter. Built with TypeScript, Three.js, and Tailwind CSS. All spacecraft, planets, nebulae, asteroids, visual effects, and audio are generated locally — no ripped game assets or asset services. The UI typefaces (Chakra Petch and JetBrains Mono, SIL OFL) are bundled from `@fontsource` packages, and the narration clips are pre-rendered with Microsoft neural TTS voices and stored in the repository; nothing is fetched from a CDN or speech service at runtime.
 
@@ -19,6 +19,14 @@ npm run preview
 ```
 
 Run the pure gameplay-rule tests with `npm test`.
+
+## Publish with GitHub Pages
+
+The `main` branch workflow in `.github/workflows/pages.yml` runs the tests, builds the site and deploys `dist` to GitHub Pages. Vite uses the `/void-squadron/` base path for production builds so scripts, styles, fonts and narration clips resolve correctly at the project-site URL:
+
+https://jchristov.github.io/void-squadron/
+
+For a new repository, configure **Settings → Pages → Build and deployment → Source → GitHub Actions** once. Subsequent pushes to `main` and manual workflow dispatches deploy automatically.
 
 ## Mission
 
