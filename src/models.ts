@@ -38,6 +38,18 @@ function addMirror(group: THREE.Group, builder: (side: number) => void): void {
   builder(-1);
 }
 
+function addPlanform(group: THREE.Group, points: [number, number][], material: THREE.Material, y: number): void {
+  const shape = new THREE.Shape();
+  points.forEach(([x, z], index) => {
+    if (index === 0) shape.moveTo(x, -z);
+    else shape.lineTo(x, -z);
+  });
+  shape.closePath();
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: true, bevelSegments: 1, steps: 1, bevelSize: 0.04, bevelThickness: 0.03 });
+  geometry.rotateX(-Math.PI / 2);
+  addMesh(group, geometry, material, [0, y, 0]);
+}
+
 function createWindowStrip(width: number, height: number, depth: number, color: number): THREE.Mesh {
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const material = new THREE.MeshStandardMaterial({
@@ -50,13 +62,25 @@ function createWindowStrip(width: number, height: number, depth: number, color: 
   return new THREE.Mesh(geometry, material);
 }
 
-function createEngineGlow(color: number, radius: number, length: number): THREE.Mesh {
-  const geometry = new THREE.ConeGeometry(radius, length, 6, 1, true);
-  geometry.rotateX(-Math.PI / 2);
-  const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.88, depthWrite: false });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.scale.y = 0.7;
-  return mesh;
+function createEngineGlow(color: number, radius: number, length: number): THREE.Group {
+  const glow = new THREE.Group();
+  const makeFlame = (flameRadius: number, flameLength: number, opacity: number) => {
+    const geometry = new THREE.ConeGeometry(flameRadius, flameLength, 8, 1, true);
+    geometry.rotateX(Math.PI / 2);
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending });
+    const flame = new THREE.Mesh(geometry, material);
+    flame.scale.y = 0.7;
+    return flame;
+  };
+
+  glow.add(makeFlame(radius, length, 0.32), makeFlame(radius * 0.48, length * 0.68, 0.92));
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(radius * 0.38, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0xe6fbff, blending: THREE.AdditiveBlending }),
+  );
+  core.position.z = radius * 0.12;
+  glow.add(core);
+  return glow;
 }
 
 function createCockpit(color: number): THREE.Mesh {
@@ -101,7 +125,7 @@ function buildFighter(accent: number, tint: number): THREE.Group {
   addMesh(group, new THREE.ConeGeometry(0.52, 1.9, 4), hull, [0, 0, -3.1], [Math.PI / 2, Math.PI / 4, 0]);
   addMesh(group, new THREE.BoxGeometry(0.5, 0.3, 1.1), accentMaterial, [0, 0.32, -1.2], [0.18, 0, 0]);
   addMirror(group, (side) => {
-    addMesh(group, new THREE.BoxGeometry(2.3, 0.1, 1.5), hull, [side * 1.45, -0.02, -0.35], [0.08, 0, -side * 0.42]);
+    addPlanform(group, [[side * 0.42, -0.7], [side * 2.7, 0.1], [side * 2.45, 1.2], [side * 0.52, 0.72]], hull, -0.08);
     addMesh(group, new THREE.BoxGeometry(0.45, 0.15, 1.8), accentMaterial, [side * 2.35, -0.15, 1.15], [0, side * 0.18, 0]);
     addMesh(group, new THREE.BoxGeometry(0.12, 0.7, 0.9), hull, [side * 0.55, 0.55, 1.4], [0.18, 0, side * 0.08]);
   });
@@ -122,7 +146,7 @@ function buildInterceptor(accent: number, tint: number): THREE.Group {
   addMesh(group, new THREE.ConeGeometry(0.38, 2.5, 4), hull, [0, 0.02, -4.0], [Math.PI / 2, Math.PI / 4, 0]);
   addMesh(group, new THREE.BoxGeometry(0.34, 0.22, 1.6), bright, [0, 0.28, -2.1], [0.25, 0, 0]);
   addMirror(group, (side) => {
-    addMesh(group, new THREE.BoxGeometry(1.9, 0.08, 2.8), hull, [side * 1.2, -0.05, -0.4], [0, side * 0.12, -side * 0.72]);
+    addPlanform(group, [[side * 0.3, -1.05], [side * 2.3, 1.75], [side * 1.72, 2.0], [side * 0.35, 0.35]], hull, -0.06);
     addMesh(group, new THREE.BoxGeometry(0.18, 0.9, 1.1), bright, [side * 1.9, 0.55, 0.95], [0.1, 0, side * 0.15]);
     addMesh(group, new THREE.BoxGeometry(0.26, 0.18, 2.0), bright, [side * 0.54, -0.2, 1.8], [0, 0, side * 0.2]);
   });
@@ -161,11 +185,11 @@ function buildShuttle(accent: number, tint: number): THREE.Group {
 
   addMesh(group, new THREE.BoxGeometry(1.05, 0.55, 4.3), hull, [0, 0.1, 0]);
   addMesh(group, new THREE.ConeGeometry(0.64, 1.9, 4), hull, [0, 0.08, -3.0], [Math.PI / 2, Math.PI / 4, 0]);
-  addMesh(group, new THREE.BoxGeometry(1.6, 0.16, 3.2), hull, [0, -0.08, 0.4], [0.05, 0, 0]);
+  addMesh(group, new THREE.BoxGeometry(1.9, 0.24, 3.8), hull, [0, -0.08, 0.55], [0.05, 0, 0]);
   addMirror(group, (side) => {
-    addMesh(group, new THREE.BoxGeometry(2.3, 0.12, 1.8), hull, [side * 1.62, 0.02, -0.15], [0.12, 0, -side * 0.28]);
-    addMesh(group, new THREE.CylinderGeometry(0.18, 0.22, 2.6, 8), bright, [side * 2.3, -0.15, 0.55], [Math.PI / 2, 0, side * 0.14]);
-    addMesh(group, new THREE.BoxGeometry(0.18, 1.05, 0.95), hull, [side * 1.2, 0.66, 1.5], [0.05, 0, side * 0.15]);
+    addPlanform(group, [[side * 0.72, -0.9], [side * 3.25, 0.65], [side * 3.1, 1.4], [side * 0.82, 0.25]], hull, -0.12);
+    addMesh(group, new THREE.CylinderGeometry(0.28, 0.34, 3.1, 10), bright, [side * 2.25, -0.12, 0.65], [Math.PI / 2, 0, side * 0.08]);
+    addMesh(group, new THREE.BoxGeometry(0.24, 1.25, 0.9), hull, [side * 1.28, 0.7, 1.65], [0.05, 0, side * 0.15]);
   });
   const cockpit = createCockpit(accent);
   cockpit.scale.set(0.9, 0.75, 1.05);
@@ -180,13 +204,17 @@ function buildFreighter(accent: number, tint: number): THREE.Group {
   const hull = createMetalMaterial(tint, 0x171d28);
   const bright = createMetalMaterial(accent, accent, 0.32, 0.52);
 
-  addMesh(group, new THREE.BoxGeometry(1.3, 0.86, 5.4), hull, [0, 0.1, -0.1]);
-  addMesh(group, new THREE.BoxGeometry(0.82, 0.54, 2.2), bright, [0, 0.68, -1.0], [0.12, 0, 0]);
+  addMesh(group, new THREE.BoxGeometry(1.8, 1.15, 5.8), hull, [0, 0.16, -0.1]);
+  addMesh(group, new THREE.BoxGeometry(1.32, 0.8, 2.2), bright, [0, 0.92, -1.0], [0.12, 0, 0]);
+  addMesh(group, new THREE.BoxGeometry(1.52, 0.92, 1.65), hull, [0, 1.02, 1.02]);
+  addMesh(group, new THREE.BoxGeometry(1.35, 0.78, 1.45), bright, [0, 0.98, 2.62]);
   addMesh(group, new THREE.ConeGeometry(0.78, 1.7, 4), hull, [0, 0.04, -3.9], [Math.PI / 2, Math.PI / 4, 0]);
+  addMesh(group, new THREE.BoxGeometry(0.24, 0.82, 4.2), bright, [0, 0.68, 0.25]);
   addMirror(group, (side) => {
-    addMesh(group, new THREE.BoxGeometry(0.95, 0.95, 2.3), hull, [side * 1.35, -0.18, 0.05], [0, side * 0.08, 0]);
-    addMesh(group, new THREE.BoxGeometry(0.72, 0.72, 1.7), bright, [side * 2.25, -0.28, 0.75], [0, side * 0.2, 0]);
-    addMesh(group, new THREE.BoxGeometry(0.22, 1.15, 1.2), hull, [side * 0.78, 0.74, 1.4], [0.08, 0, side * 0.12]);
+    addMesh(group, new THREE.BoxGeometry(0.55, 0.42, 5.3), hull, [side * 1.72, 0.02, 0.25], [0, side * 0.06, 0]);
+    addMesh(group, new THREE.BoxGeometry(0.88, 0.46, 3.2), bright, [side * 2.15, -0.12, 0.45], [0, side * 0.08, 0]);
+    addMesh(group, new THREE.CylinderGeometry(0.45, 0.55, 3.8, 10), hull, [side * 2.45, -0.1, 0.2], [Math.PI / 2, 0, 0]);
+    addMesh(group, new THREE.BoxGeometry(0.22, 0.72, 1.5), hull, [side * 0.78, 0.72, 1.52], [0.08, 0, side * 0.12]);
   });
   const cockpit = createCockpit(accent);
   cockpit.scale.set(0.8, 0.7, 0.95);
@@ -201,15 +229,20 @@ function buildDestroyer(accent: number, tint: number): THREE.Group {
   const hull = createMetalMaterial(tint, 0x181d2d, 0.5, 0.94);
   const bright = createMetalMaterial(accent, accent, 0.24, 0.66);
 
-  addMesh(group, new THREE.BoxGeometry(1.65, 0.9, 7.2), hull, [0, 0.15, -0.3]);
-  addMesh(group, new THREE.BoxGeometry(1.25, 0.46, 3.2), bright, [0, 0.84, -1.2], [0.08, 0, 0]);
-  addMesh(group, new THREE.BoxGeometry(2.3, 0.16, 5.0), hull, [0, -0.16, 0.6]);
+  addMesh(group, new THREE.BoxGeometry(2.4, 1.5, 9.0), hull, [0, 0.15, -0.3]);
+  addMesh(group, new THREE.BoxGeometry(2.0, 0.72, 4.3), bright, [0, 1.08, -1.2], [0.08, 0, 0]);
+  addMesh(group, new THREE.BoxGeometry(1.8, 0.95, 2.2), hull, [0, 1.42, 1.82]);
+  addMesh(group, new THREE.BoxGeometry(1.52, 0.7, 1.8), bright, [0, 1.3, 3.82]);
+  addMesh(group, new THREE.BoxGeometry(3.5, 0.72, 4.0), hull, [0, -0.82, 0.6]);
+  addMesh(group, new THREE.BoxGeometry(2.8, 0.22, 1.3), bright, [0, -1.26, 2.0]);
   addMesh(group, new THREE.ConeGeometry(1.0, 3.3, 4), hull, [0, 0.05, -5.2], [Math.PI / 2, Math.PI / 4, 0]);
+  addMesh(group, new THREE.BoxGeometry(1.5, 0.14, 6.8), bright, [0, 0.92, -0.6]);
   addMirror(group, (side) => {
-    addMesh(group, new THREE.BoxGeometry(3.4, 0.25, 2.2), hull, [side * 2.1, 0.02, -0.35], [0.03, 0, -side * 0.16]);
-    addMesh(group, new THREE.BoxGeometry(1.1, 0.44, 2.7), bright, [side * 2.9, -0.1, 0.6], [0, side * 0.08, 0]);
-    addMesh(group, new THREE.CylinderGeometry(0.08, 0.12, 2.1, 7), bright, [side * 1.05, 0.54, -3.2], [Math.PI / 2, side * 0.12, 0]);
-    addMesh(group, new THREE.BoxGeometry(0.2, 1.2, 1.8), hull, [side * 0.95, 1.0, 1.6], [0.08, 0, side * 0.09]);
+    addMesh(group, new THREE.BoxGeometry(5.0, 0.5, 3.0), hull, [side * 3.1, -0.32, -0.75], [0.02, 0, -side * 0.12]);
+    addMesh(group, new THREE.BoxGeometry(2.0, 0.68, 3.6), bright, [side * 4.9, -0.44, 0.25], [0, side * 0.08, 0]);
+    addMesh(group, new THREE.CylinderGeometry(0.42, 0.58, 4.6, 10), hull, [side * 3.3, -0.7, 0.9], [Math.PI / 2, 0, 0]);
+    addMesh(group, new THREE.CylinderGeometry(0.12, 0.18, 3.0, 7), bright, [side * 1.65, 0.72, -3.7], [Math.PI / 2, side * 0.12, 0]);
+    addMesh(group, new THREE.BoxGeometry(0.35, 1.8, 2.2), hull, [side * 1.2, 1.1, 2.5], [0.08, 0, side * 0.09]);
   });
   const bridge = createCockpit(accent);
   bridge.scale.set(1.15, 0.9, 1.25);

@@ -484,12 +484,12 @@ const LASER_UP_VECTOR = new THREE.Vector3(0, 0, 1);
 /** Hull radii before per-class scaling; the chase camera is tuned around these. */
 const LEGACY_SHIP_RADIUS: Record<ShipClass, number> = { fighter: 4.45, interceptor: 4.27, bomber: 5.46, shuttle: 4.49, freighter: 5.94, destroyer: 7.89 };
 const PICKUP_LABELS_SHORT: Record<PickupType, string> = { energy: 'ENERGY', shield: 'SHIELD', hull: 'HULL REPAIR', 'hull-upgrade': 'HULL UPGRADE', 'defense-upgrade': 'DEFENSE UPGRADE', 'attack-upgrade': 'ATTACK UPGRADE', torpedo: 'TORPEDOES', overcharge: 'OVERCHARGE', aegis: 'AEGIS' };
-/** On-screen radius of the start-screen hero craft: grows with hull class but sub-linearly so every craft stays prominent. */
+/** Hangar preview shares gameplay scale so the silhouette and hitbox communicate the same hull size. */
 function menuHeroRadius(ship: ShipClass): number {
-  return 3.2 * Math.pow(SHIP_TARGET_RADIUS[ship], 0.62);
+  return SHIP_TARGET_RADIUS[ship];
 }
 function menuHeroScale(ship: ShipClass): number {
-  return (SHIP_MODEL_SCALE[ship] * menuHeroRadius(ship)) / SHIP_TARGET_RADIUS[ship];
+  return SHIP_MODEL_SCALE[ship];
 }
 const POINTER_CAPTURE_SENSITIVITY = 2.25;
 // Free-cursor steering shares the sensitivity setting: at the 5x default, reaching full turn rate takes about a third of the half-screen deflection.
@@ -3513,7 +3513,7 @@ export class SpaceGame {
       });
       this.shotsFired += 1;
     }
-    this.audio.playLaser(false, stats.damage);
+    this.audio.playBlaster(stats.damage);
   }
 
   private fireEnemyWeapons(enemy: EnemyEntity, leadDirection: THREE.Vector3): void {

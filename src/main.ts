@@ -7,7 +7,7 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import './style.css';
 import { SpaceGame, type GameSnapshot } from './game';
-import { SHIPS, PICKUP_LABELS, PICKUP_TYPES, isCombatPickup, isUpgradePickup, pickupCssColor, type PickupType, type ShipClass } from './rules';
+import { SHIPS, SHIP_TARGET_RADIUS, PICKUP_LABELS, PICKUP_TYPES, isCombatPickup, isUpgradePickup, pickupCssColor, type PickupType, type ShipClass } from './rules';
 import { relativeRadarPosition, projectRadarContact, radarRingDistance } from './radar';
 import { formatSpaceDistance } from './units';
 import { formatDuration, getMissionRank } from './summary';
@@ -15,6 +15,8 @@ import { loadRecords, saveRecords, updateRecords, type RecordUpdate } from './re
 import { UPGRADE_MAX_LEVEL, getUpgradedShipStats, type UpgradeLevels } from './upgrades';
 import { CHAPTERS, FINAL_CHAPTER_NUMBER, completeChapter, getChapterByNumber, getChapterRank, isChapterUnlocked, loadProgress, saveProgress, type CampaignProgress, type ChapterDef, type ObjectiveKind } from './campaign';
 import { renderShipThumbnails } from './thumbnails';
+
+declare const __APP_VERSION__: string;
 
 const app = document.querySelector<HTMLElement>('#app')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#space')!;
@@ -31,6 +33,14 @@ const shipIcon = (type: ShipClass) => {
   };
   return `<svg viewBox="0 0 64 60" fill="none" aria-hidden="true"><path d="${shapes[type]}" stroke="currentColor" stroke-width="1.3"/><path d="M32 20v23M26 47v5M38 47v5" stroke="currentColor" opacity=".45"/></svg>`;
 };
+if ('serviceWorker' in navigator && (import.meta.env.PROD || window.location.protocol === 'https:')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`, { scope: import.meta.env.BASE_URL }).catch((error: unknown) => {
+      console.warn('Void Squadron could not register its offline service worker.', error);
+    });
+  }, { once: true });
+}
+
 const safeStorage = (() => { try { return window.localStorage; } catch { return null; } })();
 let campaign: CampaignProgress = loadProgress(safeStorage);
 let menuMode: 'campaign' | 'arcade' = (() => { try { return localStorage.getItem('void-squadron-mode') === 'arcade' ? 'arcade' : 'campaign'; } catch { return 'campaign'; } })();
@@ -110,9 +120,9 @@ app.innerHTML = `
     </div>
     <div class="hangar">
       <div class="hangar-top flex items-center justify-between"><div class="flex items-center gap-3"><span class="section-index">HANGAR /</span><h2>SELECT YOUR SPACECRAFT</h2></div><span class="hangar-note hidden md:block">SIX CLASSES · LIVE 3D RENDER</span></div>
-      <div id="ship-list" class="ship-list" role="group" aria-label="Select spacecraft">${(Object.keys(SHIPS) as ShipClass[]).map((key, i) => `<button class="ship-card ${key === selected ? 'selected' : ''}" data-ship="${key}" aria-pressed="${key === selected}" aria-keyshortcuts="${i + 1}"><span class="ship-art" data-art="${key}">${shipIcon(key)}</span><span class="ship-number">0${i + 1}</span><span class="ship-class">${key.toUpperCase()}</span><span class="ship-name">${SHIPS[key].name}</span><span class="ship-best" data-best="${key}"></span></button>`).join('')}</div>
+      <div id="ship-list" class="ship-list" role="group" aria-label="Select spacecraft">${(Object.keys(SHIPS) as ShipClass[]).map((key, i) => `<button class="ship-card ${key === selected ? 'selected' : ''}" data-ship="${key}" aria-pressed="${key === selected}" aria-keyshortcuts="${i + 1}"><span class="ship-art" data-art="${key}">${shipIcon(key)}</span><span class="ship-number">0${i + 1}</span><span class="ship-class">${key.toUpperCase()}</span><span class="ship-size">${Math.round(SHIP_TARGET_RADIUS[key] * 2)} M</span><span class="ship-name">${SHIPS[key].name}</span><span class="ship-best" data-best="${key}"></span></button>`).join('')}</div>
     </div>
-    <footer class="menu-footer flex items-center justify-between"><span>ORIGINAL UNIVERSE <span class="separator">/</span> REAL-TIME 3D</span><button id="controls-open" class="text-button">FLIGHT MANUAL ↗</button><span>PERSONAL BEST <b id="best">${best.toLocaleString()}</b></span></footer>
+    <footer class="menu-footer flex items-center justify-between"><span>ORIGINAL UNIVERSE <span class="separator">/</span> REAL-TIME 3D</span><button id="controls-open" class="text-button">FLIGHT MANUAL ↗</button><span class="menu-footer-stats"><span class="game-version">V${__APP_VERSION__}</span><span>PERSONAL BEST <b id="best">${best.toLocaleString()}</b></span></span></footer>
   </section>
   <section id="hud" class="hidden" aria-label="Combat status">
     <div class="hud-mission"><span class="eyebrow">OPERATION SHATTERED ORBIT</span><h2>BREAK THE BLOCKADE</h2><div class="flex gap-5"><span>WAVE <b id="wave">01</b> / 05</span><span>HOSTILES <b id="enemies">0</b></span></div></div>

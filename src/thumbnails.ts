@@ -34,15 +34,14 @@ export function renderShipThumbnails(): Partial<Record<ShipClass, string>> {
     for (const ship of Object.keys(SHIPS) as ShipClass[]) {
       const model = createShipModel(ship, { accent: 0x8be3ff, tint: 0x8a97aa });
       model.rotation.set(0.42, -0.72, -0.12);
+      model.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(model);
       const sphere = box.getBoundingSphere(new THREE.Sphere());
       model.position.sub(sphere.center);
       const holder = new THREE.Group();
       holder.add(model);
       scene.add(holder);
-      const fov = THREE.MathUtils.degToRad(camera.fov);
-      const distance = (sphere.radius / Math.sin(Math.min(fov / 2, (fov * WIDTH) / HEIGHT / 2))) * 0.8;
-      camera.position.set(0, 0, distance);
+      camera.position.set(0, 0, 54);
       camera.lookAt(0, 0, 0);
       renderer.render(scene, camera);
       result[ship] = canvas.toDataURL('image/png');

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="8" y1="6" x2="56" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#122936"/><stop offset="1" stop-color="#050a11"/></linearGradient>
+    <linearGradient id="wing" x1="15" y1="12" x2="49" y2="53" gradientUnits="userSpaceOnUse"><stop stop-color="#fff0c9"/><stop offset=".48" stop-color="#ffbf69"/><stop offset="1" stop-color="#e87943"/></linearGradient>
+    <filter id="glow" x="4" y="4" width="56" height="56" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="2.3"/></filter>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)" stroke="#83e5e7" stroke-opacity=".35"/>
+  <path d="M32 12 51 49 34 41 32 54 30 41 13 49Z" fill="#ffbf69" opacity=".62" filter="url(#glow)"/>
+  <path d="m32 10 18 39-16-8-2 12-2-12-16 8z" fill="url(#wing)" stroke="#fff0c9" stroke-linejoin="round" stroke-width="1.2"/>
+  <path d="m32 19 5 18-5-2-5 2z" fill="#122936"/>
+  <path d="m24 39-9 7m25-7 9 7" fill="none" stroke="#83e5e7" stroke-linecap="round" stroke-width="1.4"/>
+  <circle cx="32" cy="45" r="1.5" fill="#83e5e7"/>
+</svg>

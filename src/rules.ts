@@ -500,21 +500,21 @@ export function isVictoryWave(wave: number): boolean {
  */
 export const SHIP_TARGET_RADIUS: Record<ShipClass, number> = {
   fighter: 3.4,
-  interceptor: 4.0,
-  bomber: 5.0,
-  shuttle: 6.0,
-  freighter: 7.6,
-  destroyer: 10.0,
+  interceptor: 4.4,
+  bomber: 5.8,
+  shuttle: 7.4,
+  freighter: 9.3,
+  destroyer: 12.0,
 };
 
 /** Model scale that makes each procedural model hit SHIP_TARGET_RADIUS (measured at scale 1). */
 export const SHIP_MODEL_SCALE: Record<ShipClass, number> = {
-  fighter: 0.7635,
-  interceptor: 0.8627,
-  bomber: 0.9885,
-  shuttle: 1.3621,
-  freighter: 1.5108,
-  destroyer: 1.4705,
+  fighter: 0.7620,
+  interceptor: 0.9285,
+  bomber: 1.1466,
+  shuttle: 1.5467,
+  freighter: 1.7952,
+  destroyer: 1.4049,
 };
 
 export const TORPEDO = {

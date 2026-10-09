@@ -80,6 +80,38 @@ export class GameAudio {
     this.engineOscB.frequency.linearRampToValueAtTime(114 + speed * (boosting ? 118 : 72), now + 0.08);
   }
 
+  playBlaster(power: number): void {
+    if (!this.context || !this.master || this.muted) {
+      return;
+    }
+    const now = this.context.currentTime;
+    const pitch = 680 + Math.min(power, 100) * 2.2;
+    const fundamental = this.context.createOscillator();
+    const edge = this.context.createOscillator();
+    const fundamentalGain = this.context.createGain();
+    const edgeGain = this.context.createGain();
+    fundamental.type = 'sawtooth';
+    fundamental.frequency.setValueAtTime(pitch, now);
+    fundamental.frequency.exponentialRampToValueAtTime(pitch * 0.43, now + 0.095);
+    edge.type = 'square';
+    edge.frequency.setValueAtTime(pitch * 1.51, now);
+    edge.frequency.exponentialRampToValueAtTime(pitch * 0.68, now + 0.07);
+    fundamentalGain.gain.setValueAtTime(0.0001, now);
+    fundamentalGain.gain.exponentialRampToValueAtTime(0.045, now + 0.006);
+    fundamentalGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.105);
+    edgeGain.gain.setValueAtTime(0.0001, now);
+    edgeGain.gain.exponentialRampToValueAtTime(0.012, now + 0.004);
+    edgeGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+    fundamental.connect(fundamentalGain);
+    edge.connect(edgeGain);
+    fundamentalGain.connect(this.master);
+    edgeGain.connect(this.master);
+    fundamental.start(now);
+    edge.start(now);
+    fundamental.stop(now + 0.11);
+    edge.stop(now + 0.05);
+  }
+
   playLaser(enemy: boolean, power: number): void {
     if (!this.context || !this.master || this.muted) {
       return;
