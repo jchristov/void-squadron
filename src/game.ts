@@ -5,6 +5,7 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 
 import { GameAudio } from './audio';
 import {
+  animateThrusters,
   createAsteroid,
   createCapitalCarrier,
   createPlanet,
@@ -1246,6 +1247,10 @@ export class SpaceGame {
     this.music?.setVolume(volume);
   }
 
+  setSfxVolume(volume: number): void {
+    this.audio.setSfxVolume(volume);
+  }
+
   setVoiceVolume(volume: number): void {
     this.narrator?.setVolume(volume);
   }
@@ -1731,6 +1736,8 @@ export class SpaceGame {
     this.planetPivot.rotation.z = Math.sin(elapsed * 0.05) * 0.05;
     this.menuStation.userData.update?.(elapsed, dt);
     this.menuCradle.userData.update?.(elapsed, dt);
+    animateThrusters(this.menuHero, elapsed);
+    this.menuEscorts.forEach((escort, index) => animateThrusters(escort, elapsed + index * 0.8));
     this.menuStation.rotation.y = -0.55 + Math.sin(elapsed * 0.04) * 0.05;
 
     const pose = heroPose(elapsed);
@@ -1818,6 +1825,9 @@ export class SpaceGame {
     this.processSpawns();
     this.maintainAsteroidField();
     this.updateEnemies(dt);
+    const thrusterTime = this.missionTime;
+    animateThrusters(this.playerShip!, thrusterTime);
+    for (const enemy of this.enemies) animateThrusters(enemy.object, thrusterTime + enemy.id * 0.37);
     this.updateBoss(dt);
     this.updateAsteroids(dt);
     this.updateLasers(dt);

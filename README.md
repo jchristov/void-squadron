@@ -39,7 +39,7 @@ The start screen is a single fullscreen composition with no scrolling on desktop
 - **Music** (`src/music.ts`) is an original score synthesized live with the Web Audio API (no samples): a floating pad-and-arpeggio theme in the hangar, a driving combat track whose drums and stabs scale with the number of hostiles, a sparse tense cue for stealth stages, a heavier track for the Leviathan, plus a fanfare on victory and a slow dirge on defeat. The score ducks under narration and halves when paused.
 - **Narration** (`src/narration.ts`, `src/voiceLines.ts`) uses pre-rendered **Microsoft neural voices**: *Command* (en-US-ChristopherNeural) reads chapter briefings, debriefs and wave calls; the *onboard AI* (en-US-AriaNeural) reports shields, hull, throttle, target locks, upgrades and stealth detection; the *wingman* (en-US-GuyNeural) shouts boss phases, salvage and raids. Computer and wingman go through a cockpit-radio filter. Lines have priorities (critical calls interrupt, chatter is dropped when busy) and per-line cooldowns, and a subtitle bar shows the spoken text.
 - The clips are static MP3s in `public/audio/voice` (about 2 MB), so nothing is fetched from Microsoft at play time. To change or add lines, edit `src/voiceLines.ts` and run `node --experimental-strip-types scripts/generate-voice.mjs` (needs network access; `--force` re-renders everything). A test fails when a line has no clip.
-- Settings: **Music volume**, **Narration volume** and **Subtitles**. The SOUND button mutes everything. Browsers keep audio locked until your first click or key press, so music and the welcome line start then.
+- Settings: **Music volume**, **Narration volume**, **Sound effects volume** (weapons, impacts and explosions), and **Subtitles**. The SOUND button mutes everything. Browsers keep audio locked until your first click or key press, so music and the welcome line start then.
 
 ### Salvage drops
 
@@ -74,6 +74,7 @@ Chapters unlock in order. The first clear of a chapter grants a permanent upgrad
 | X / right mouse | Fire a homing **proton torpedo** (fighter 4, interceptor 0, bomber 8, shuttle 0, freighter 0, destroyer 6) |
 | M | Toggle mouse capture; during menus enables it for next launch |
 | Escape | Pause / resume |
+| H | Toggle combat HUD focus; hides panels while preserving targeting guidance |
 | T / Shift+T | Lock a target (nearest to your nose first, then cycle) / clear the lock; clicking a radar contact also locks it |
 | P | Toggle **autopilot** (flies to the target, nearest hostile or useful supply; never fires) |
 | C | Toggle **autocombat** (hunts, aims with lead, fires, evades, boosts, retreats to supplies when hurt) |

@@ -1,6 +1,8 @@
 export class GameAudio {
   private context?: AudioContext;
   private master?: GainNode;
+  private effectsGain?: GainNode;
+  private sfxVolume = 0.8;
   private engineGain?: GainNode;
   private engineOscA?: OscillatorNode;
   private engineOscB?: OscillatorNode;
@@ -19,6 +21,10 @@ export class GameAudio {
       this.master = this.context.createGain();
       this.master.gain.value = 0.14;
       this.master.connect(this.context.destination);
+
+      this.effectsGain = this.context.createGain();
+      this.effectsGain.gain.value = this.sfxVolume;
+      this.effectsGain.connect(this.master);
 
       this.engineGain = this.context.createGain();
       this.engineGain.gain.value = 0;
@@ -64,6 +70,13 @@ export class GameAudio {
     }
   }
 
+  setSfxVolume(volume: number): void {
+    this.sfxVolume = Math.max(0, Math.min(1, volume));
+    if (this.effectsGain && this.context) {
+      this.effectsGain.gain.setTargetAtTime(this.sfxVolume, this.context.currentTime, 0.015);
+    }
+  }
+
   setEngine(active: boolean, speedRatio: number, boosting: boolean): void {
     if (!this.context || !this.engineGain || !this.engineOscA || !this.engineOscB) {
       return;
@@ -81,7 +94,7 @@ export class GameAudio {
   }
 
   playBlaster(power: number): void {
-    if (!this.context || !this.master || this.muted) {
+    if (!this.context || !this.effectsGain || this.muted) {
       return;
     }
     const now = this.context.currentTime;
@@ -97,15 +110,15 @@ export class GameAudio {
     edge.frequency.setValueAtTime(pitch * 1.51, now);
     edge.frequency.exponentialRampToValueAtTime(pitch * 0.68, now + 0.07);
     fundamentalGain.gain.setValueAtTime(0.0001, now);
-    fundamentalGain.gain.exponentialRampToValueAtTime(0.045, now + 0.006);
+    fundamentalGain.gain.exponentialRampToValueAtTime(0.065, now + 0.006);
     fundamentalGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.105);
     edgeGain.gain.setValueAtTime(0.0001, now);
-    edgeGain.gain.exponentialRampToValueAtTime(0.012, now + 0.004);
+    edgeGain.gain.exponentialRampToValueAtTime(0.018, now + 0.004);
     edgeGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
     fundamental.connect(fundamentalGain);
     edge.connect(edgeGain);
-    fundamentalGain.connect(this.master);
-    edgeGain.connect(this.master);
+    fundamentalGain.connect(this.effectsGain);
+    edgeGain.connect(this.effectsGain);
     fundamental.start(now);
     edge.start(now);
     fundamental.stop(now + 0.11);
@@ -113,7 +126,7 @@ export class GameAudio {
   }
 
   playLaser(enemy: boolean, power: number): void {
-    if (!this.context || !this.master || this.muted) {
+    if (!this.context || !this.effectsGain || this.muted) {
       return;
     }
     const now = this.context.currentTime;
@@ -126,13 +139,13 @@ export class GameAudio {
     gain.gain.exponentialRampToValueAtTime(0.05 + Math.min(power, 40) * 0.0012, now + 0.012);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.14);
     oscillator.connect(gain);
-    gain.connect(this.master);
+    gain.connect(this.effectsGain);
     oscillator.start(now);
     oscillator.stop(now + 0.16);
   }
 
   playImpact(shielded: boolean, strength: number): void {
-    if (!this.context || !this.master || this.muted) {
+    if (!this.context || !this.effectsGain || this.muted) {
       return;
     }
     const now = this.context.currentTime;
@@ -145,13 +158,13 @@ export class GameAudio {
     gain.gain.exponentialRampToValueAtTime(0.045 + Math.min(strength, 100) * 0.0008, now + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.2);
     oscillator.connect(gain);
-    gain.connect(this.master);
+    gain.connect(this.effectsGain);
     oscillator.start(now);
     oscillator.stop(now + 0.22);
   }
 
   playExplosion(size: number): void {
-    if (!this.context || !this.master || this.muted) {
+    if (!this.context || !this.effectsGain || this.muted) {
       return;
     }
     const now = this.context.currentTime;
@@ -169,7 +182,7 @@ export class GameAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.45);
     low.connect(gain);
     mid.connect(gain);
-    gain.connect(this.master);
+    gain.connect(this.effectsGain);
     low.start(now);
     mid.start(now);
     low.stop(now + 0.5);
@@ -177,7 +190,7 @@ export class GameAudio {
   }
 
   playBossAlarm(): void {
-    if (!this.context || !this.master || this.muted) return;
+    if (!this.context || !this.effectsGain || this.muted) return;
     const now = this.context.currentTime;
     for (let pulse = 0; pulse < 3; pulse += 1) {
       const start = now + pulse * 0.55;
@@ -190,14 +203,14 @@ export class GameAudio {
       gain.gain.exponentialRampToValueAtTime(0.07, start + 0.03);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.45);
       osc.connect(gain);
-      gain.connect(this.master);
+      gain.connect(this.effectsGain);
       osc.start(start);
       osc.stop(start + 0.5);
     }
   }
 
   playBossStinger(escalate: boolean): void {
-    if (!this.context || !this.master || this.muted) return;
+    if (!this.context || !this.effectsGain || this.muted) return;
     const now = this.context.currentTime;
     const notes = escalate ? [196, 233, 294] : [392, 330, 262];
     notes.forEach((freq, index) => {
@@ -210,7 +223,7 @@ export class GameAudio {
       gain.gain.exponentialRampToValueAtTime(0.06, start + 0.02);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.35);
       osc.connect(gain);
-      gain.connect(this.master!);
+      gain.connect(this.effectsGain!);
       osc.start(start);
       osc.stop(start + 0.4);
     });
@@ -257,6 +270,7 @@ export class GameAudio {
     this.engineOscA?.disconnect?.();
     this.engineOscB?.disconnect?.();
     this.engineGain?.disconnect?.();
+    this.effectsGain?.disconnect?.();
     this.master?.disconnect?.();
     void this.context?.close?.();
     this.engineOscA = undefined;

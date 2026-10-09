@@ -106,14 +106,47 @@ function createAntenna(color: number): THREE.Mesh {
   return new THREE.Mesh(geometry, material);
 }
 
+interface ThrusterAnimation {
+  glow: THREE.Group;
+  materials: { material: THREE.MeshBasicMaterial; opacity: number }[];
+  scale: THREE.Vector3;
+  phase: number;
+}
+
+const COLD_THRUSTER = new THREE.Color(0x61e6ff);
+const WARM_THRUSTER = new THREE.Color(0xffb45e);
+
+export function animateThrusters(root: THREE.Object3D, elapsed: number): void {
+  const thrusters = root.userData.thrusters as ThrusterAnimation[] | undefined;
+  if (!thrusters) return;
+  for (const thruster of thrusters) {
+    const pulse = (Math.sin(elapsed * 5.2 + thruster.phase) + 1) * 0.5;
+    const heat = (Math.sin(elapsed * 0.72 + thruster.phase * 0.35) + 1) * 0.5;
+    thruster.glow.scale.copy(thruster.scale).multiplyScalar(0.84 + pulse * 0.25);
+    for (const { material, opacity } of thruster.materials) {
+      material.color.lerpColors(COLD_THRUSTER, WARM_THRUSTER, heat);
+      material.opacity = opacity * (0.78 + pulse * 0.3);
+    }
+  }
+}
+
 function addThrusters(group: THREE.Group, count: number, span: number, z: number, size: number, color: number): void {
+  const thrusters: ThrusterAnimation[] = [];
   for (let index = 0; index < count; index += 1) {
     const t = count === 1 ? 0 : index / (count - 1);
     const x = THREE.MathUtils.lerp(-span, span, t);
     const glow = createEngineGlow(color, size, size * 2.8);
     glow.position.set(x, -0.05, z);
+    const materials: ThrusterAnimation['materials'] = [];
+    glow.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshBasicMaterial && child.material.transparent) {
+        materials.push({ material: child.material, opacity: child.material.opacity });
+      }
+    });
+    thrusters.push({ glow, materials, scale: glow.scale.clone(), phase: index * 1.7 });
     group.add(glow);
   }
+  group.userData.thrusters = thrusters;
 }
 
 function buildFighter(accent: number, tint: number): THREE.Group {
