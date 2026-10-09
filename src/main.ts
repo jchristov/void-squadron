@@ -52,6 +52,7 @@ let lastRecordUpdate: RecordUpdate | undefined;
 let selected: ShipClass = 'fighter';
 let game: SpaceGame | undefined;
 let latest: GameSnapshot | undefined;
+let hudFocused = false;
 let displayedMode = '';
 let best = 0;
 let muted = false;
@@ -705,9 +706,9 @@ function update(state: GameSnapshot) {
 }
 try { game = new SpaceGame(canvas, update); shipDetails(); }
 catch (error) {
-  for (const id of ['launch', 'launch-chapter']) { el(id).textContent = '3D GRAPHICS UNAVAILABLE'; (el(id) as HTMLButtonElement).disabled = true; }
-  document.querySelectorAll('.launch-hint').forEach(hint => { hint.textContent = 'Enable WebGL / hardware acceleration, then reload this page.'; });
-  console.error('Unable to initialize the 3D renderer:', error);
+  for (const id of ['launch', 'launch-chapter']) { el(id).textContent = 'GAME INITIALIZATION FAILED'; (el(id) as HTMLButtonElement).disabled = true; }
+  document.querySelectorAll('.launch-hint').forEach(hint => { hint.textContent = 'The game could not start. Reload the page or check the browser console for details.'; });
+  console.error('Unable to initialize the game:', error);
 }
 el('launch').addEventListener('click', () => launch());
 el('launch-chapter').addEventListener('click', launchMenuSelection);
@@ -724,7 +725,6 @@ el('resume').addEventListener('click', () => {
 });
 for (const id of ['abort', 'return']) el(id).addEventListener('click', () => game?.returnToMenu());
 el('pause-button').addEventListener('click', () => game?.pause());
-let hudFocused = false;
 function setHudFocus(focused: boolean) {
   hudFocused = focused;
   document.body.classList.toggle('hud-focus', focused);
