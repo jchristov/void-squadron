@@ -38,7 +38,8 @@ body[data-mode="playing"] .topbar{height:72px;border-bottom:0}
 .hud-mission{position:absolute;top:107px;left:4.5%;font-size:9px;color:#8aa4b3}
 .hud-mission h2{font-size:14px;letter-spacing:2px;color:#d1dfe6;margin:10px 0 15px;font-weight:500}
 .hud-mission b{color:var(--amber);font-weight:400}
-.hud-score{position:absolute;top:107px;right:4.5%;text-align:right}
+.hud-right-panel{position:absolute;top:107px;right:4.5%;width:310px;display:grid;gap:14px;align-content:start}
+.hud-score{position:relative;text-align:right}
 .hud-score strong{font-family:var(--mono);font-size:32px;letter-spacing:3px;font-weight:300;display:block}
 .hud-score>span:last-child{display:block;font-size:10px;letter-spacing:2px;margin-top:8px}
 .reticle{position:absolute;left:50%;top:50%;width:54px;height:54px;transform:translate(-50%,-50%);border:1px solid #9de6e833;border-radius:50%}
@@ -102,7 +103,7 @@ dialog dd{margin:7px 0}
 /* Keep the launcher in document flow so short windows cannot cover the launch controls. */
 body:has(#menu:not(.hidden)){overflow-y:auto}
 @media(max-width:640px){.screen-vignette{background:linear-gradient(90deg,#050a11c9,transparent),linear-gradient(0deg,#050a11b0,transparent 70%)}}
-.radar-panel{position:absolute;right:4.5%;bottom:165px;width:180px;font:8px var(--mono);letter-spacing:1px;color:#90b5c2}
+.radar-panel{position:relative;width:100%;font:8px var(--mono);letter-spacing:1px;color:#90b5c2}
 .radar-heading{display:flex;justify-content:space-between;align-items:center;color:var(--cyan);font-size:7px}
 .radar-heading b{font-weight:400;color:#627e8d}
 .radar-panel canvas{width:180px;height:180px;display:block}
@@ -113,8 +114,7 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 #radar-range{text-align:center;font-size:7px}
 .radar-caption{font-size:5px;letter-spacing:.3px;margin-top:9px;text-align:center;color:#6f8b99}
 .recovery-status{position:absolute;top:30%;left:20%;right:20%;text-align:center;color:var(--cyan);font:10px var(--mono);letter-spacing:2px;text-shadow:0 0 15px #83e5e7}
-@media(max-width:640px){.radar-panel{right:6%;bottom:150px;width:120px}.radar-panel canvas{width:120px;height:120px}.radar-heading{font-size:6px}.radar-legend{font-size:5px;gap:5px;letter-spacing:0}.radar-caption{font-size:4px}.topbar .icon-button{padding:8px 5px;font-size:6px}.topbar .brand{letter-spacing:2px}.topbar .brand svg{width:23px}.topbar .brand-sub{font-size:7px}.recovery-status{font-size:8px;left:5%;right:5%}}
-@media(max-height:650px) and (min-width:641px){.radar-panel{width:135px;bottom:155px}.radar-panel canvas{width:135px;height:135px}}
+@media(max-width:640px){.radar-heading{font-size:6px}.radar-legend{font-size:5px;gap:5px;letter-spacing:0}.radar-caption{font-size:4px}.topbar .icon-button{padding:8px 5px;font-size:6px}.topbar .brand{letter-spacing:2px}.topbar .brand svg{width:23px}.topbar .brand-sub{font-size:7px}.recovery-status{font-size:8px;left:5%;right:5%}}
 .radar-zoom{display:flex;align-items:center;justify-content:space-between;gap:4px}
 .radar-zoom button{background:#17303a;border:1px solid #83e5e733;color:var(--cyan);font:15px monospace;width:24px;height:24px}
 .radar-zoom button:disabled{opacity:.35}
@@ -132,7 +132,7 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 .capture-indicator{position:absolute;left:50%;top:84px;transform:translateX(-50%);padding:9px 15px;border:1px solid #a4d4e844;background:#061421dc;color:#a8c5d4;font:10px var(--mono);letter-spacing:1px;white-space:nowrap}
 .capture-indicator.captured{color:var(--cyan);border-color:#83e5e788;box-shadow:0 0 20px #83e5e718}
 .hud-mission,.hud-score,.systems,.boost-system,.radar-panel{background:linear-gradient(130deg,#07131fe8,#0a1a25ce);border:1px solid #98c8d64d;box-shadow:0 8px 30px #0005,inset 0 1px #d9f3ff0a;backdrop-filter:blur(5px)}
-.hud-mission{padding:18px 20px;font-size:12px;border-left:3px solid var(--cyan)}
+.hud-mission{width:310px;padding:18px 20px;font-size:12px;border-left:3px solid var(--cyan)}
 .hud-mission h2{font-size:17px;letter-spacing:1.6px;margin:10px 0 17px}
 .hud-mission .eyebrow{font-size:10px}
 .hud-mission b{font-size:15px;font-weight:700}
@@ -149,8 +149,11 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 .boost-system .meta-label{font-size:10px}
 .boost-system strong{font-size:34px}
 .boost-system small{font-size:10px}
-.radar-panel{width:216px;padding:15px;bottom:183px}
-.radar-panel canvas{width:184px;height:184px}
+.hud-right-panel{width:310px}
+.hud-right-panel .hud-score,.hud-right-panel .radar-panel{width:100%;padding:15px}
+.hud-right-panel .radar-panel canvas{width:min(100%,180px);height:auto;aspect-ratio:1;margin:0 auto}
+.hud-right-panel .hud-score{padding:16px 20px;border-top:2px solid var(--amber)}
+.radar-panel{width:100%;padding:15px}
 .radar-heading{font-size:10px;letter-spacing:.5px}
 .radar-heading b{font-size:9px}
 .radar-legend{font-size:8px;letter-spacing:0}
@@ -162,8 +165,9 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 .reticle{border-color:#b8f7f97a}
 .flight-hints{font-size:9px;color:#b0c7d3}
 .flight-hints kbd{font-size:8px}
-@media(max-height:700px) and (min-width:641px){.hud-mission,.hud-score{top:86px;padding:12px 14px}.hud-mission h2{font-size:14px}.hud-score strong{font-size:28px}.capture-indicator{top:70px;font-size:8px}.radar-panel{width:177px;padding:12px;bottom:165px}.radar-panel canvas{width:151px;height:151px}.radar-heading{font-size:8px}.radar-legend{font-size:6px}.systems{width:260px;padding:13px 15px}.flight-hints{display:none!important}.boost-system{width:165px}}
-@media(max-width:640px){.hud-mission{top:99px;padding:11px 12px;max-width:56%;font-size:9px}.hud-mission h2{font-size:12px;margin:5px 0 12px}.hud-mission b{font-size:12px}.hud-score{top:99px;padding:10px;max-width:31%}.hud-score strong{font-size:22px;letter-spacing:1px}.hud-score .meta-label{font-size:7px;letter-spacing:.5px}.capture-indicator{top:73px;font-size:8px;padding:6px 10px}.systems{width:65%;padding:12px 10px}.systems .eyebrow{font-size:7px;line-height:1.5}.system-row{font-size:8px;gap:6px}.system-row>span{width:40px}.system-row b{font-size:10px;width:27px}.meter{height:6px}.boost-system{width:30%;padding:12px 8px}.boost-system .meta-label{font-size:7px;letter-spacing:0}.boost-system strong{font-size:23px;letter-spacing:0}.boost-system small{font-size:7px}.hud-bottom{gap:10px}.radar-panel{width:154px;padding:10px;bottom:175px}.radar-panel canvas{width:132px;height:132px}.radar-heading{font-size:7px}.radar-heading b{font-size:7px}.radar-legend{font-size:5px}.radar-zoom #radar-range{font-size:6px}.radar-caption{font-size:5px}.combat-message{top:25%;font-size:11px}.recovery-status{font-size:10px}.sensitivity-control{min-width:110px}.setting-row .sensitivity-control input{width:110px}}
+@media(max-height:700px) and (min-width:641px){.hud-mission,.hud-right-panel{top:86px}.hud-mission{padding:12px 14px}.hud-mission h2{font-size:14px}.hud-right-panel .hud-score,.hud-right-panel .radar-panel{padding:12px}.hud-score strong{font-size:28px}.capture-indicator{top:70px;font-size:8px}.radar-heading{font-size:8px}.radar-legend{font-size:6px}.systems{width:260px;padding:13px 15px}.flight-hints{display:none!important}.boost-system{width:165px}}
+@media(max-width:640px){.hud-mission{top:99px;padding:11px 12px;font-size:9px}.hud-mission h2{font-size:12px;margin:5px 0 12px}.hud-mission b{font-size:12px}.hud-right-panel{top:99px;width:42%}.hud-right-panel .hud-score,.hud-right-panel .radar-panel{padding:10px}.hud-score strong{font-size:22px;letter-spacing:1px}.hud-score .meta-label{font-size:7px;letter-spacing:.5px}.capture-indicator{top:73px;font-size:8px;padding:6px 10px}.systems{padding:12px 10px}.systems .eyebrow{font-size:7px;line-height:1.5}.system-row{font-size:8px;gap:6px}.system-row>span{width:40px}.system-row b{font-size:10px;width:27px}.meter{height:6px}.boost-system{width:30%;padding:12px 8px}.boost-system .meta-label{font-size:7px;letter-spacing:0}.boost-system strong{font-size:23px;letter-spacing:0}.boost-system small{font-size:7px}.hud-bottom{gap:10px}.radar-heading{font-size:7px}.radar-heading b{font-size:7px}.radar-legend{font-size:5px}.radar-zoom #radar-range{font-size:6px}.radar-caption{font-size:5px}.combat-message{top:25%;font-size:11px}.recovery-status{font-size:10px}.sensitivity-control{min-width:110px}.setting-row .sensitivity-control input{width:110px}}
+@media(max-width:640px){.hud-mission,.hud-right-panel,.systems,.upgrade-panel{width:42%;max-width:310px}.hud-right-panel{right:6%}}
 .upgrade-panel{position:absolute;left:4.5%;bottom:190px;width:300px;padding:17px;background:linear-gradient(130deg,#07131fe8,#0a1a25ce);border:1px solid #98c8d64d;border-left:3px solid var(--amber);box-shadow:0 8px 30px #0005;font:10px var(--mono);color:#b9d5df}
 .upgrade-title{display:flex;justify-content:space-between;font-size:9px;letter-spacing:1px;color:var(--amber);margin-bottom:16px}
 .upgrade-title span{font-size:7px;color:#7995a4}
@@ -176,7 +180,7 @@ body:has(#menu:not(.hidden)){overflow-y:auto}
 #upgrade-attack-bar{background:#ff776c}
 .upgrade-effects{font-size:8px;line-height:1.6;color:#8fb2c3;margin-top:16px}
 @media(max-height:700px) and (min-width:641px){.upgrade-panel{width:260px;padding:12px;bottom:170px}.upgrade-title{margin-bottom:8px}.upgrade-row{margin-top:8px}.upgrade-effects{margin-top:8px}}
-@media(max-width:640px){.upgrade-panel{left:6%;bottom:192px;width:170px;padding:10px}.upgrade-title{font-size:7px;letter-spacing:0;margin-bottom:9px}.upgrade-title span{display:none}.upgrade-row{gap:5px;margin-top:10px}.upgrade-row>span{width:43px;font-size:7px}.upgrade-row b{font-size:8px;width:32px}.upgrade-effects{font-size:6px;margin-top:10px}.upgrade-track{height:5px}.radar-panel{width:140px;padding:8px}.radar-panel canvas{width:122px;height:122px}}
+@media(max-width:640px){.upgrade-panel{left:6%;bottom:192px;width:170px;padding:10px}.upgrade-title{font-size:7px;letter-spacing:0;margin-bottom:9px}.upgrade-title span{display:none}.upgrade-row{gap:5px;margin-top:10px}.upgrade-row>span{width:43px;font-size:7px}.upgrade-row b{font-size:8px;width:32px}.upgrade-effects{font-size:6px;margin-top:10px}.upgrade-track{height:5px}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
 .boss-card{position:absolute;top:124px;left:50%;transform:translateX(-50%);width:min(520px,42vw);padding:13px 18px 15px;background:linear-gradient(130deg,#2a0b1ce8,#0a1a25ce);border:1px solid #ff4fa377;border-top:2px solid #ff4fa3;box-shadow:0 8px 30px #0006,0 0 40px #ff4fa31f;font:11px var(--mono);letter-spacing:1.2px;color:#ffc4e0}
 .boss-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;font-size:13px;color:#ff8fc4}
@@ -325,7 +329,8 @@ body[data-mode="menu"] .screen-vignette{background:linear-gradient(90deg,rgba(4,
 @media(max-width:640px){.eyebrow-extra{display:none}body[data-mode="menu"] .screen-vignette{background:linear-gradient(180deg,rgba(4,9,15,.86) 0%,rgba(4,9,15,.7) 45%,rgba(4,9,15,.92) 100%)}}
 
 /* ===== Pilot assists: top bar, target marker, off-screen arrow, color-coded radar legend ===== */
-.assist-bar{position:absolute;left:50%;top:84px;transform:translateX(-50%);display:flex;gap:6px;align-items:stretch;max-width:96vw;pointer-events:none;z-index:6}
+.assist-bar{display:none;gap:6px;align-items:stretch;margin:0 auto;min-width:0;z-index:6}
+body[data-mode="playing"] .assist-bar,body[data-mode="paused"] .assist-bar{display:flex}
 .assist-bar .capture-indicator{position:static;transform:none;display:flex;align-items:center}
 .assist-btn{display:flex;align-items:center;gap:7px;padding:7px 11px;background:#061421dc;border:1px solid #a4d4e844;color:#a8c5d4;font:10px var(--mono);letter-spacing:1px;white-space:nowrap;max-width:360px;transition:border-color .2s,background .2s,color .2s}
 .assist-btn kbd{padding:1px 5px;border:1px solid #8fb3c455;font:inherit;color:#d7e8f0;background:#ffffff0d}
@@ -352,8 +357,8 @@ body[data-mode="menu"] .screen-vignette{background:linear-gradient(90deg,rgba(4,
 @keyframes arrowpulse{50%{opacity:.62}}
 .radar-legend.supplies{margin-top:4px;flex-wrap:wrap;justify-content:flex-start;gap:3px 8px}.radar-legend .tgt{color:#fff}.radar-legend .upg{display:inline-flex;align-items:center;gap:2px;color:#9fb6c2}.radar-legend .upg i{font-style:normal}
 .radar-panel canvas{pointer-events:auto;cursor:crosshair}
-@media(max-width:900px){.assist-btn small{display:none}.assist-bar{top:74px;flex-wrap:wrap;justify-content:center}.assist-btn{padding:6px 8px;font-size:9px}}
-@media(max-height:700px) and (min-width:641px){.assist-bar{top:70px}.assist-btn{padding:5px 9px}}
+@media(max-width:1100px){.assist-btn small{display:none}.assist-btn{padding:6px 8px;font-size:9px}}
+
 
 /* ===== Ordnance, combat powerups and radar supply readout ===== */
 .ordnance{display:grid;gap:7px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line);font-family:var(--mono)}
@@ -569,17 +574,16 @@ body.rounded :is(.meter i,.ob-progress i){border-radius:inherit}
 .range-control output{color:var(--amber);font-size:15px}
 .setting-row .range-control input{width:135px;height:20px;cursor:pointer}
 body[data-mode="menu"] .topbar{background:linear-gradient(180deg,rgb(3 8 14 / calc(var(--pa) * 1.2)),rgb(3 8 14 / calc(var(--pa) * .5)))}
-.throttle-row{display:flex;align-items:center;gap:9px;margin-top:10px;font:500 9px var(--mono);letter-spacing:.14em;color:#8bb7c1}
-.throttle-row b{width:38px;text-align:right;font-weight:500;color:#e7eced}
-.throttle-row .meter{margin:0}
+.gauge{margin-top:10px;text-align:left}
+.gauge-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:5px;font:500 9px var(--mono);letter-spacing:.14em;color:#8bb7c1;text-transform:uppercase}
+.gauge-head b{font-weight:500;color:#e7eced;letter-spacing:.06em}
+.gauge .meter{margin:0}
 .throttle-row .meter i{background:var(--cyan)}
 .throttle-row .meter.idle i{background:#ff8b82}
 .upgrade-panel{width:310px}
-.boost-meter{margin-top:12px}
-.boost-meter .meta-label{display:block;margin-bottom:6px;color:#8bb7c1}
 .boost-meter .boost{margin-top:0}
-@media(max-height:700px) and (min-width:641px){.upgrade-panel{width:260px}}
-@media(max-width:640px){.upgrade-panel{width:65%}.boost-meter .meta-label{font-size:7px;letter-spacing:0}}
+@media(max-height:700px) and (min-width:641px){.systems,.upgrade-panel{width:310px}}
+@media(max-width:640px){.upgrade-panel{width:65%}.gauge-head{font-size:7px;letter-spacing:.04em}}
 
 /* ===== Mission-complete / mission-failed screens ===== */
 .result-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0}
@@ -657,3 +661,71 @@ body[data-mode="menu"] .topbar{background:linear-gradient(180deg,rgb(3 8 14 / ca
 body[data-mode="menu"] .subtitle{bottom:auto;top:84px;width:min(560px,46vw)}
 body[data-mode="ended"] .subtitle{bottom:18px;width:min(680px,calc(100vw - 32px));z-index:40}
 @media(max-width:1000px){.subtitle{width:calc(100vw - 24px);bottom:auto;top:128px}body[data-mode="menu"] .subtitle{top:70px;width:calc(100vw - 24px)}}
+
+/* ===== Small screens: decluttered in-flight HUD, assists always reachable ===== */
+@media(max-width:640px){
+  body[data-mode="playing"] .topbar,body[data-mode="paused"] .topbar{height:50px;inset:0 3% auto}
+  body[data-mode="playing"] .brand-word,body[data-mode="paused"] .brand-word,
+  body[data-mode="playing"] #settings-open,body[data-mode="paused"] #settings-open,
+  body[data-mode="playing"] #quality,body[data-mode="paused"] #quality{display:none}
+  body[data-mode="playing"] .brand svg,body[data-mode="paused"] .brand svg{width:26px}
+  body[data-mode="playing"] .topbar-controls .icon-button,body[data-mode="paused"] .topbar-controls .icon-button{padding:10px 9px;font-size:8px;min-height:36px}
+  body[data-mode="playing"] .assist-bar,body[data-mode="paused"] .assist-bar{position:fixed;top:52px;left:8px;right:8px;margin:0;gap:5px;pointer-events:auto}
+  .assist-bar .capture-indicator{display:none}
+  .assist-btn{flex:1 1 0;justify-content:center;min-height:38px;padding:6px 4px;font-size:8px;letter-spacing:.4px;gap:4px;pointer-events:auto}
+  .assist-btn small{display:none}
+  .assist-btn kbd{display:none}
+  .hud-mission,.upgrade-panel,.flight-hints,.radar-caption,.radar-legend,.hud-score .meta-label{display:none!important}
+  .objective-card{top:98px;left:8px;width:calc(100% - 156px);padding:8px 10px;gap:5px}
+  .objective-card strong{font-size:11px}.objective-card .ob-head{font-size:7px}
+  .hud-right-panel{top:98px;right:8px;width:138px;gap:6px}
+  .hud-right-panel .hud-score{padding:6px 10px}.hud-score strong{font-size:18px}
+  .hud-right-panel .radar-panel{padding:6px}
+  .hud-right-panel .radar-panel canvas{width:100%}
+  .radar-heading span{display:none}
+  .radar-zoom button{width:26px;height:26px}
+  .hud-bottom{left:8px;right:8px;bottom:12px;gap:8px}
+  .hud-bottom .systems{width:auto;flex:1}
+  .boost-system{width:92px}
+  .hud-focus-toggle{right:8px;bottom:calc(12px + 96px)}
+  .combat-message{top:30%}
+}
+
+/* ===== HUD scaling: --hud-scale is set from the viewport size in main.ts ===== */
+body:is([data-mode="playing"],[data-mode="paused"]){--hud-scale:1}
+body:is([data-mode="playing"],[data-mode="paused"]) :is(.topbar,#objective-card,.hud-right-panel,.upgrade-panel,.hud-bottom,.boss-card,.hud-focus-toggle){zoom:var(--hud-scale)}
+@media(max-height:500px) and (min-width:641px){.upgrade-panel,.radar-legend,.radar-caption,#radar-supply,.radar-heading,.hud-score .meta-label{display:none!important}.hud-right-panel .radar-panel canvas{width:min(100%,130px)}.hud-right-panel{gap:6px}}
+
+/* ===== Equal-size peer cards ===== */
+.hud-bottom{align-items:stretch}
+.hud-bottom .systems,.hud-bottom .boost-system{display:flex;flex-direction:column;justify-content:center}
+@media(min-width:641px){.objective-card,.upgrade-panel,.systems,.hud-right-panel{width:310px;box-sizing:border-box}.boost-system{box-sizing:border-box}}
+body:is([data-mode="playing"],[data-mode="paused"]) .hud-focus-toggle{left:50%;right:auto;bottom:38px;transform:translateX(-50%)}
+body.hud-focus:is([data-mode="playing"],[data-mode="paused"]) .hud-focus-toggle{left:auto;right:18px;bottom:18px;transform:none}
+@media(max-width:640px){body:is([data-mode="playing"],[data-mode="paused"]) .hud-focus-toggle{bottom:12px}}
+@media(max-width:640px){body:is([data-mode="playing"],[data-mode="paused"]) .hud-focus-toggle{left:8px;right:auto;top:172px;bottom:auto;transform:none;min-height:34px}}
+.hud-right-panel .hud-score{top:auto;right:auto}
+
+/* Readability floor: small HUD text never renders below ~9.5px, however far the HUD is scaled down */
+body:is([data-mode="playing"],[data-mode="paused"]) :is(
+  .brand-word i,.assist-btn kbd,.assist-btn span,.assist-btn small,.capture-indicator,.topbar-controls .icon-button,.topbar-controls .icon-button span,.hud-focus-toggle,
+  .ob-head,.ob-head span,.objective-card p,.hud-score .meta-label,.radar-heading span,.radar-heading b,.radar-zoom span,.radar-supply,.radar-legend span,.radar-legend i,.radar-caption,
+  .upgrade-title,.upgrade-title span,.upgrade-row>span,.upgrade-row b,.upgrade-effects,
+  .systems .eyebrow,.system-row span,.orow span,.orow kbd,.boost-system .meta-label,.boost-system small,.gauge-head,.gauge-head span,.gauge-head b,.system-row b,.orow b
+){font-size:var(--hud-min,9.5px)!important;letter-spacing:.06em}
+@media(max-height:780px) and (min-width:641px){.radar-legend,.radar-caption,.upgrade-effects{display:none!important}.hud-right-panel .radar-panel canvas{width:min(100%,150px)}.hud-right-panel{gap:8px}}
+
+/* Transient cards stay clear of the HUD panels */
+body:is([data-mode="playing"],[data-mode="paused"]) .subtitle{top:auto;bottom:var(--sub-bottom,76px);left:var(--hud-inset,12px);right:var(--hud-inset,12px);width:auto;max-width:680px;margin:0 auto}
+body.subtitle-compact:is([data-mode="playing"],[data-mode="paused"]) .subtitle{padding:6px 10px;max-width:none}
+body.subtitle-compact .subtitle span{display:none}
+body.subtitle-compact .subtitle p{font-size:11px;line-height:1.3;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+body:is([data-mode="playing"],[data-mode="paused"]) :is(.recovery-status,.combat-message){left:var(--hud-inset,10%);right:var(--hud-inset,10%)}
+@media(max-width:1000px),(max-height:700px){.recovery-status{top:60%}.combat-message,#hud:has(.boss-card:not(.hidden)) .combat-message{top:54%}}
+.hud-right-panel{grid-template-columns:minmax(0,1fr)}
+.hud-right-panel>*{min-width:0;max-width:100%}
+@media(max-width:640px){.hud-right-panel .hud-score,.hud-right-panel .radar-panel{padding:8px;box-sizing:border-box}.radar-heading,.radar-zoom,.radar-supply{flex-wrap:wrap;min-width:0}}
+body.boss-stack .boss-card{top:var(--boss-top);width:calc(100vw - 14px);max-width:none}
+body.boss-stack :is(.objective-card,.hud-right-panel,.hud-focus-toggle){margin-top:var(--boss-shift,0px)}
+
+.objective-card,.hud-right-panel .hud-score{box-sizing:border-box}

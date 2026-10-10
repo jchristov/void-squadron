@@ -4299,7 +4299,7 @@ export class SpaceGame {
   /** Layered, additive-glow explosion: flash, fireballs, smoke, shockwaves, debris, sparks and secondary blasts. */
   private spawnBlast(
     position: THREE.Vector3,
-    options: { radius: number; power: number; cause?: BlastCause; velocity?: THREE.Vector3; rocky?: boolean },
+    options: { radius: number; power: number; cause?: BlastCause; velocity?: THREE.Vector3; rocky?: boolean; audioIntensity?: number },
   ): void {
     const collision = options.cause === 'collision';
     const radius = Math.max(1.4, options.radius);
@@ -4499,7 +4499,7 @@ export class SpaceGame {
 
     const distance = position.distanceTo(this.camera.position);
     this.cameraShake = Math.min(1.5, this.cameraShake + 0.2 * power * clamp(90 / (distance + 25), 0, 1.3));
-    this.audio.playExplosion(clamp(1 + radius * 0.3 + power, 1, 6));
+    this.audio.playExplosion(clamp(1 + radius * 0.3 + power, 1, 6), options.audioIntensity);
   }
 
   private spawnExplosion(position: THREE.Vector3, size: number, color: number): void {
@@ -4846,10 +4846,11 @@ export class SpaceGame {
     this.target = null;
     if (result === 'defeat' && !silent) {
       this.spawnBlast(this.playerRoot.position, {
-        radius: this.playerRadius * 1.5,
-        power: cause === 'collision' ? 3.2 : 2.4,
+        radius: this.playerRadius * 2.2,
+        power: cause === 'collision' ? 4.5 : 3.6,
         velocity: this.playerVelocity,
         cause,
+        audioIntensity: 1.8,
       });
       this.playerRoot.visible = false;
       this.slowMoDuration = cause === 'collision' ? 2 : 1.4;

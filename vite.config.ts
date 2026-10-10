@@ -3,13 +3,24 @@ import tailwindcss from '@tailwindcss/vite';
 import packageJson from './package.json' with { type: 'json' };
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+
+let shortCommit = 'unknown';
+try {
+  shortCommit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
+} catch {
+  // Git metadata is unavailable in source archives and exported build environments.
+}
 
 const threePackagePath = fileURLToPath(new URL('./node_modules/three/package.json', import.meta.url));
 const threeVersion = JSON.parse(await readFile(threePackagePath, 'utf8')).version as string;
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/void-squadron/' : '/',
-  define: { __APP_VERSION__: JSON.stringify(packageJson.version) },
+  define: {
+    __APP_VERSION__: JSON.stringify(packageJson.version),
+    __APP_COMMIT__: JSON.stringify(shortCommit),
+  },
   plugins: [
     tailwindcss(),
     {

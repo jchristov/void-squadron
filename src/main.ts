@@ -17,6 +17,7 @@ import { CHAPTERS, FINAL_CHAPTER_NUMBER, completeChapter, getChapterByNumber, ge
 import { renderShipThumbnails } from './thumbnails';
 
 declare const __APP_VERSION__: string;
+declare const __APP_COMMIT__: string;
 
 const app = document.querySelector<HTMLElement>('#app')!;
 const canvas = document.querySelector<HTMLCanvasElement>('#space')!;
@@ -79,7 +80,13 @@ app.innerHTML = `
   <header class="topbar">
     <a class="brand" href="#" aria-label="Void Squadron home">${emblem}<span class="brand-word"><b>VOID</b><i>SQUADRON</i></span></a>
     <div class="topbar-status" aria-label="Station status"><span class="chip live"><span class="status-dot"></span>OUTER FRONTIER<em>SECTOR 07</em></span><span class="chip" id="chip-campaign">CAMPAIGN<em>0 / ${FINAL_CHAPTER_NUMBER}</em></span><span class="chip hide-sm">DOCK 04<em>CLAMPS ARMED</em></span></div>
-    <div class="topbar-controls"><button id="audio" class="icon-button" aria-label="Mute audio" title="Toggle audio">SOUND <span>ON</span></button><button id="quality" class="icon-button" aria-label="Switch to performance graphics" title="Toggle graphics quality">FX <span>HIGH</span></button><button id="settings-open" class="icon-button" aria-label="Open game settings">SETTINGS</button><button id="bounds" class="icon-button" aria-label="Show collision bounds" aria-pressed="false" title="Toggle collision sphere visualization">BOUNDS <span>OFF</span></button><button id="pause-button" class="icon-button hidden" aria-label="Pause game">II</button></div>
+  <div class="assist-bar">
+    <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
+    <button id="assist-target" class="assist-btn" tabindex="-1" aria-label="Target nearest enemy (T)"><kbd>T</kbd><span>TARGET</span><small id="assist-target-info"></small></button>
+    <button id="assist-auto" class="assist-btn" tabindex="-1" aria-label="Toggle autopilot (P)"><kbd>P</kbd><span>AUTOPILOT</span><small id="assist-auto-info"></small></button>
+    <button id="assist-combat" class="assist-btn" tabindex="-1" aria-label="Toggle autocombat (C)"><kbd>C</kbd><span>AUTOCOMBAT</span><small id="assist-combat-info"></small></button>
+  </div>
+    <div class="topbar-controls"><button id="audio" class="icon-button" aria-label="Mute audio" title="Toggle audio">SOUND <span>ON</span></button><button id="quality" class="icon-button" aria-label="Switch to performance graphics" title="Toggle graphics quality">FX <span>HIGH</span></button><button id="settings-open" class="icon-button" aria-label="Open game settings">SETTINGS</button><button id="manual-open" class="icon-button" aria-label="Open flight controls and keymap" title="Show flight controls and keymap">KEYS</button><button id="bounds" class="icon-button" aria-label="Show collision bounds" aria-pressed="false" title="Toggle collision sphere visualization">BOUNDS <span>OFF</span></button><button id="pause-button" class="icon-button hidden" aria-label="Pause game">II</button></div>
   </header>
   <section id="menu" class="menu-screen">
     <div class="menu-main">
@@ -123,13 +130,16 @@ app.innerHTML = `
       <div class="hangar-top flex items-center justify-between"><div class="flex items-center gap-3"><span class="section-index">HANGAR /</span><h2>SELECT YOUR SPACECRAFT</h2></div><span class="hangar-note hidden md:block">SIX CLASSES · LIVE 3D RENDER</span></div>
       <div id="ship-list" class="ship-list" role="group" aria-label="Select spacecraft">${(Object.keys(SHIPS) as ShipClass[]).map((key, i) => `<button class="ship-card ${key === selected ? 'selected' : ''}" data-ship="${key}" aria-pressed="${key === selected}" aria-keyshortcuts="${i + 1}"><span class="ship-art" data-art="${key}">${shipIcon(key)}</span><span class="ship-number">0${i + 1}</span><span class="ship-class">${key.toUpperCase()}</span><span class="ship-size">${Math.round(SHIP_TARGET_RADIUS[key] * 2)} M</span><span class="ship-name">${SHIPS[key].name}</span><span class="ship-best" data-best="${key}"></span></button>`).join('')}</div>
     </div>
-    <footer class="menu-footer flex items-center justify-between"><span>ORIGINAL UNIVERSE <span class="separator">/</span> REAL-TIME 3D</span><button id="controls-open" class="text-button">FLIGHT MANUAL ↗</button><span class="menu-footer-stats"><span class="game-version">V${__APP_VERSION__}</span><span>PERSONAL BEST <b id="best">${best.toLocaleString()}</b></span></span></footer>
+    <footer class="menu-footer flex items-center justify-between"><span>ORIGINAL UNIVERSE <span class="separator">/</span> REAL-TIME 3D</span><button id="controls-open" class="text-button">FLIGHT MANUAL ↗</button><span class="menu-footer-stats"><span class="game-version">V${__APP_VERSION__} · BUILD ${__APP_COMMIT__}</span><span>PERSONAL BEST <b id="best">${best.toLocaleString()}</b></span></span></footer>
   </section>
   <section id="hud" class="hidden" aria-label="Combat status">
     <button id="hud-focus-toggle" class="hud-focus-toggle" aria-label="Hide combat panels" aria-pressed="false">H · FOCUS</button>
     <div class="hud-mission"><span class="eyebrow">OPERATION SHATTERED ORBIT</span><h2>BREAK THE BLOCKADE</h2><div class="flex gap-5"><span>WAVE <b id="wave">01</b> / 05</span><span>HOSTILES <b id="enemies">0</b></span></div></div>
     <aside id="objective-card" class="objective-card hidden" aria-label="Mission objective"><div class="ob-head"><span id="ob-chapter" class="eyebrow"></span><span id="ob-stage"></span></div><strong id="ob-line"></strong><p id="ob-hint"></p><div class="ob-progress"><i id="ob-progress"></i></div><div id="ob-det-row" class="ob-row hidden"><span>DETECTION</span><div class="meter"><i id="ob-det"></i></div><b id="ob-det-val"></b></div><div id="ob-asset-row" class="ob-row hidden"><span id="ob-asset-label">ASSET HULL</span><div class="meter"><i id="ob-asset"></i></div><b id="ob-asset-val"></b></div><div id="ob-time-row" class="ob-row hidden"><span>TIME LEFT</span><div class="ob-time" id="ob-time"></div></div></aside>
-    <div class="hud-score"><span class="meta-label">COMBAT SCORE</span><strong id="score">000000</strong><span id="combo" class="amber"></span></div>
+    <aside class="hud-right-panel" aria-label="Combat score and tactical radar">
+      <div class="hud-score"><span class="meta-label">COMBAT SCORE</span><strong id="score">000000</strong><span id="combo" class="amber"></span></div>
+      <div class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div id="radar-supply" class="radar-supply" role="status"></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span><span class="obj">⌖ OBJECTIVE</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t) && !isCombatPickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-legend supplies combat">${PICKUP_TYPES.filter(isCombatPickup).map(t => `<span style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">⬢ ${t === 'torpedo' ? 'TORPEDO' : t.toUpperCase()}</span>`).join('')}</div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET · RINGS SHOW KM</div></div>
+    </aside>
     <div class="reticle" aria-hidden="true"><span></span><i></i></div>
     <aside class="upgrade-panel" aria-label="Permanent spacecraft upgrades"><div class="upgrade-title">PERMANENT UPGRADES <span>THIS SHIP</span></div><div class="upgrade-row"><span>HULL</span><div class="upgrade-track"><i id="upgrade-hull-bar"></i></div><b id="upgrade-hull-level">0 / 10</b></div><div class="upgrade-row"><span>DEFENSE</span><div class="upgrade-track"><i id="upgrade-defense-bar"></i></div><b id="upgrade-defense-level">0 / 10</b></div><div class="upgrade-row"><span>ATTACK</span><div class="upgrade-track"><i id="upgrade-attack-bar"></i></div><b id="upgrade-attack-level">0 / 10</b></div><div class="upgrade-effects" id="upgrade-effects"></div></aside>
     <div id="boss-banner" class="boss-banner hidden" role="alert" aria-live="assertive"><span id="boss-banner-kicker"></span><strong id="boss-banner-title"></strong><small id="boss-banner-copy"></small></div>
@@ -139,15 +149,8 @@ app.innerHTML = `
       <div id="target-lead" class="target-lead hidden"></div>
       <div id="target-arrow" class="target-arrow hidden"><svg viewBox="0 0 40 40"><path d="M35 20L9 7L16 20L9 33Z" fill="currentColor"/></svg><div class="ta-label"><b id="ta-name"></b><span id="ta-dist"></span><em id="ta-turn"></em></div></div>
     </div>
-    <div class="assist-bar">
-      <div id="capture-indicator" class="capture-indicator">M · MOUSE FREE</div>
-      <button id="assist-target" class="assist-btn" tabindex="-1" aria-label="Target nearest enemy (T)"><kbd>T</kbd><span>TARGET</span><small id="assist-target-info"></small></button>
-      <button id="assist-auto" class="assist-btn" tabindex="-1" aria-label="Toggle autopilot (P)"><kbd>P</kbd><span>AUTOPILOT</span><small id="assist-auto-info"></small></button>
-      <button id="assist-combat" class="assist-btn" tabindex="-1" aria-label="Toggle autocombat (C)"><kbd>C</kbd><span>AUTOCOMBAT</span><small id="assist-combat-info"></small></button>
-    </div>
     <div id="message" class="combat-message" role="status" aria-live="polite"></div>
-    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div><div class="ordnance" id="ordnance"><div class="orow torp" id="orow-torp"><span>TORPEDOES</span><div class="torp-pips" id="torp-pips"></div><kbd>X</kbd></div><div class="orow oc hidden" id="orow-oc"><span>OVERCHARGE</span><div class="meter"><i id="oc-bar"></i></div><b id="oc-time"></b></div><div class="orow ae hidden" id="orow-ae"><span>AEGIS</span><div class="meter"><i id="ae-bar"></i></div><b id="ae-val"></b></div></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>X</kbd> / R-CLICK · TORPEDO</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>R</kbd> / <kbd>F</kbd> · THROTTLE · <kbd>Z</kbd> ALL STOP</span><span><kbd>+</kbd> / <kbd>−</kbd> · RADAR ZOOM</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="throttle-row"><span>THROTTLE</span><div class="meter throttle"><i id="throttle-bar"></i></div><b id="throttle-value">100%</b></div><div class="boost-meter"><span class="meta-label">BOOST</span><div class="meter boost"><i id="energy-bar"></i></div></div></div></div>
-    <aside class="radar-panel" aria-label="Tactical radar"><div class="radar-heading"><span>TACTICAL SCANNER</span><b id="radar-scale">1,000 KM</b></div><canvas id="radar" width="360" height="360" aria-label="Ship-relative contact map"></canvas><div class="radar-zoom"><button id="radar-in" aria-label="Zoom radar in">+</button><span id="radar-range" role="status">SCANNING CONTACTS</span><button id="radar-out" aria-label="Zoom radar out">−</button></div><div id="radar-supply" class="radar-supply" role="status"></div><div class="radar-legend"><span class="hostile">◆ HOSTILE</span><span class="neutral">◇ BONUS</span><span class="boss">■ CAPITAL</span><span class="tgt">◎ TARGET</span><span class="obj">⌖ OBJECTIVE</span></div><div class="radar-legend supplies">${PICKUP_TYPES.filter(t => !isUpgradePickup(t) && !isCombatPickup(t)).map(t => `<span style="color:${pickupCssColor(t)}">+ ${t.toUpperCase()}</span>`).join('')}<span class="upg">${PICKUP_TYPES.filter(isUpgradePickup).map(t => `<i style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">◈</i>`).join('')} UPGRADES</span></div><div class="radar-legend supplies combat">${PICKUP_TYPES.filter(isCombatPickup).map(t => `<span style="color:${pickupCssColor(t)}" title="${PICKUP_LABELS[t]}">⬢ ${t === 'torpedo' ? 'TORPEDO' : t.toUpperCase()}</span>`).join('')}</div><div class="radar-caption">TOP: AHEAD · BOTTOM: BEHIND · CLICK A CONTACT TO TARGET · RINGS SHOW KM</div></aside>
+    <div class="hud-bottom"><div class="systems"><span class="eyebrow" id="pilot-ship"></span><div class="system-row"><span>SHIELD</span><div class="meter"><i id="shield-bar"></i></div><b id="shield-value">100</b></div><div class="system-row hull"><span>HULL</span><div class="meter"><i id="hull-bar"></i></div><b id="hull-value">100</b></div><div class="ordnance" id="ordnance"><div class="orow torp" id="orow-torp"><span>TORPEDOES</span><div class="torp-pips" id="torp-pips"></div><kbd>X</kbd></div><div class="orow oc hidden" id="orow-oc"><span>OVERCHARGE</span><div class="meter"><i id="oc-bar"></i></div><b id="oc-time"></b></div><div class="orow ae hidden" id="orow-ae"><span>AEGIS</span><div class="meter"><i id="ae-bar"></i></div><b id="ae-val"></b></div></div></div><div class="flight-hints hidden md:flex"><span>MOUSE / <kbd>W A S D</kbd> · YAW / PITCH</span><span>WHEEL / <kbd>Q E</kbd> · ROLL</span><span><kbd>SPACE</kbd> / CLICK · FIRE</span><span><kbd>X</kbd> / R-CLICK · TORPEDO</span><span><kbd>SHIFT</kbd> · BOOST</span><span><kbd>R</kbd> / <kbd>F</kbd> · THROTTLE · <kbd>Z</kbd> ALL STOP</span><span><kbd>+</kbd> / <kbd>−</kbd> · RADAR ZOOM</span><span><kbd>ESC</kbd> · PAUSE</span></div><div class="boost-system"><span class="meta-label">ENGINE OUTPUT</span><strong><span id="speed">0</span><small> KM/S</small></strong><div class="gauge throttle-row"><div class="gauge-head"><span>THROTTLE</span><b id="throttle-value">100%</b></div><div class="meter throttle"><i id="throttle-bar"></i></div></div><div class="gauge boost-meter"><div class="gauge-head"><span>BOOST</span><b id="energy-value">100%</b></div><div class="meter boost"><i id="energy-bar"></i></div></div></div></div>
     <div id="recovery-status" class="recovery-status" role="status" aria-live="polite"></div>
     <div id="damage-flash" aria-hidden="true"></div>
   </section>
@@ -697,7 +700,7 @@ function update(state: GameSnapshot) {
   text('shield-value', Math.ceil(state.shield)); text('hull-value', Math.ceil(state.hull));
   el('shield-bar').style.width = `${ship.shield > 0 ? Math.max(0, state.shield / ship.shield * 100) : 0}%`;
   el('hull-bar').style.width = `${Math.max(0, state.hull / ship.hull * 100)}%`;
-  el('energy-bar').style.width = `${Math.max(0, state.energy)}%`;
+  el('energy-bar').style.width = `${Math.max(0, state.energy)}%`; text('energy-value', `${Math.round(Math.max(0, state.energy))}%`);
   text('speed', Math.round(state.speed)); text('message', state.message); text('pilot-ship', `${ship.name} / ${state.ship.toUpperCase()}`);
   el('hull-bar').classList.toggle('critical', state.hull < ship.hull * .25);
   if (previous && state.mode === 'playing' && (state.hull < previous.hull || state.shield < previous.shield)) {
@@ -762,6 +765,45 @@ game?.setSubtitleHandler(line => {
   el('subtitle').classList.toggle('hidden', !line);
   if (line) { text('subtitle-role', ROLE_LABEL[line.role]); text('subtitle-text', line.text); el('subtitle').dataset.role = line.role; }
 });
+const updateHudScale = () => {
+  const w = window.innerWidth, h = window.innerHeight;
+  const scale = w <= 640 ? Math.min(w / 420, h / 760, 1.1) : Math.min(w / 1440, h / 820, 1.3);
+  const clamped = Math.max(0.5, scale);
+  document.body.style.setProperty('--hud-scale', clamped.toFixed(3));
+  document.body.style.setProperty('--hud-min', `${Math.max(8, 9.5 / clamped).toFixed(2)}px`);
+};
+updateHudScale(); window.addEventListener('resize', updateHudScale);
+// Keeps transient cards (dialogue subtitle, boss status) clear of the fixed HUD panels at any size.
+const layoutHud = () => {
+  const scale = parseFloat(document.body.style.getPropertyValue('--hud-scale')) || 1;
+  const visible = (n: Element | null): n is HTMLElement => Boolean(n) && (n as HTMLElement).offsetWidth > 0;
+  const side = [el('objective-card'), document.querySelector('.hud-right-panel'), document.querySelector('.upgrade-panel')].filter(visible).map(n => n.getBoundingClientRect());
+  const inset = Math.max(8, ...side.map(r => r.left < innerWidth / 2 ? r.right + 10 : innerWidth - r.left + 10));
+  const wide = innerWidth - inset * 2 >= 240;
+  document.body.style.setProperty('--hud-inset', `${wide ? Math.round(inset) : 8}px`);
+  document.body.classList.toggle('subtitle-compact', !wide);
+  const bottomRef = wide ? el('hud-focus-toggle') : (document.querySelector('.hud-bottom') as HTMLElement);
+  el('subtitle').style.setProperty('--sub-bottom', `${Math.max(8, Math.round(innerHeight - bottomRef.getBoundingClientRect().top + 8))}px`);
+  const obj = el('objective-card'), score = document.querySelector('.hud-score') as HTMLElement, panel = document.querySelector('.hud-right-panel') as HTMLElement;
+  if (visible(obj) && visible(score)) {
+    obj.style.top = ''; obj.style.minHeight = ''; score.style.minHeight = '';
+    obj.style.top = getComputedStyle(panel).top;
+    const tall = Math.max(obj.getBoundingClientRect().height, score.getBoundingClientRect().height) / scale;
+    obj.style.minHeight = score.style.minHeight = `${tall.toFixed(1)}px`;
+  }
+  const boss = el('boss-card');
+  const stack = innerWidth <= 1100 && !boss.classList.contains('hidden');
+  document.body.classList.toggle('boss-stack', stack);
+  const bar = document.querySelector('.topbar') as HTMLElement;
+  const topEdge = Math.max(...[...bar.querySelectorAll<HTMLElement>('.brand,.assist-bar,.topbar-controls')].map(n => n.getBoundingClientRect().bottom)) + 6;
+  boss.style.setProperty('--boss-top', `${(topEdge / scale).toFixed(1)}px`);
+  document.body.style.setProperty('--boss-shift', `${((stack ? boss.getBoundingClientRect().height + 6 : 0) / scale).toFixed(1)}px`);
+};
+const hudObserver = new ResizeObserver(layoutHud);
+for (const n of ['hud-focus-toggle', 'boss-card', 'objective-card', 'score']) hudObserver.observe(el(n));
+hudObserver.observe(document.querySelector('.hud-bottom') as HTMLElement);
+window.addEventListener('resize', layoutHud);
+layoutHud();
 const unlockAudio = () => { game?.unlockAudio(); window.removeEventListener('pointerdown', unlockAudio); window.removeEventListener('keydown', unlockAudio); };
 window.addEventListener('pointerdown', unlockAudio); window.addEventListener('keydown', unlockAudio);
 applyUiSettings();
@@ -812,7 +854,9 @@ function zoomRadar(factor: number) {
 el('radar-in').addEventListener('click', () => zoomRadar(.5));
 el('radar-out').addEventListener('click', () => zoomRadar(2));
 const manualDialog = el('manual') as HTMLDialogElement;
-el('controls-open').addEventListener('click', () => manualDialog.showModal());
+const openManual = () => manualDialog.showModal();
+el('controls-open').addEventListener('click', openManual);
+el('manual-open').addEventListener('click', openManual);
 manualDialog.addEventListener('click', event => {
   if (event.target !== manualDialog) return;
   const bounds = manualDialog.getBoundingClientRect();

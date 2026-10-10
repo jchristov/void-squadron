@@ -163,12 +163,13 @@ export class GameAudio {
     oscillator.stop(now + 0.22);
   }
 
-  playExplosion(size: number): void {
+  playExplosion(size: number, intensity = 1): void {
     if (!this.context || !this.effectsGain || this.muted) {
       return;
     }
     const now = this.context.currentTime;
     const scale = Math.max(0.7, Math.min(6, size));
+    const gainScale = Math.max(1, Math.min(1.9, intensity));
     const pitchJitter = 0.9 + Math.random() * 0.2;
     const sub = this.context.createOscillator();
     const body = this.context.createOscillator();
@@ -197,16 +198,17 @@ export class GameAudio {
     body.frequency.setValueAtTime((165 + scale * 26) * pitchJitter, now);
     body.frequency.exponentialRampToValueAtTime(48, now + 0.32);
     subGain.gain.setValueAtTime(0.0001, now);
-    subGain.gain.exponentialRampToValueAtTime(0.2 + scale * 0.025, now + 0.018);
+    subGain.gain.setValueAtTime(0.0001, now);
+    subGain.gain.exponentialRampToValueAtTime((0.2 + scale * 0.025) * gainScale, now + 0.018);
     subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.58);
     bodyGain.gain.setValueAtTime(0.0001, now);
-    bodyGain.gain.exponentialRampToValueAtTime(0.11 + scale * 0.025, now + 0.012);
+    bodyGain.gain.exponentialRampToValueAtTime((0.11 + scale * 0.025) * gainScale, now + 0.012);
     bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.4);
     rumbleGain.gain.setValueAtTime(0.0001, now);
-    rumbleGain.gain.exponentialRampToValueAtTime(0.18 + scale * 0.025, now + 0.009);
+    rumbleGain.gain.exponentialRampToValueAtTime((0.18 + scale * 0.025) * gainScale, now + 0.009);
     rumbleGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.48);
     crackleGain.gain.setValueAtTime(0.0001, now);
-    crackleGain.gain.exponentialRampToValueAtTime(0.1 + scale * 0.012, now + 0.004);
+    crackleGain.gain.exponentialRampToValueAtTime((0.1 + scale * 0.012) * gainScale, now + 0.004);
     crackleGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
     sub.connect(subGain);
     body.connect(bodyGain);
